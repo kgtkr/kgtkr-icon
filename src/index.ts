@@ -6,7 +6,6 @@ import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 const scene = new THREE.Scene();
-const helpers = new THREE.Group();
 const bones: THREE.Bone[] = [];
 const meshes: THREE.SkinnedMesh[] = [];
 
@@ -405,12 +404,12 @@ legR.mesh.add(footR.mesh);
 const skeleton = new THREE.Skeleton(bones);
 
 for (const mesh of meshes) {
-  helpers.add(new THREE.SkeletonHelper(mesh));
+  scene.add(new THREE.SkeletonHelper(mesh));
   mesh.bind(skeleton);
 }
 
 scene.add(body.mesh);
-scene.add(helpers);
+scene.add(new THREE.GridHelper(10));
 
 function createFaceTextureCanvas() {
   const UP_SCALE = 4;
