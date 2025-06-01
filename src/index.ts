@@ -7,7 +7,45 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 
 const scene = new THREE.Scene();
 const bones: THREE.Bone[] = [];
-const meshes: THREE.SkinnedMesh[] = [];
+
+class Part {
+  constructor(
+    public geometry: THREE.BufferGeometry,
+    public material: THREE.Material,
+    public position: THREE.Vector3,
+    public children: Part[] = []
+  ) {}
+
+  add(part: Part) {
+    this.children.push(part);
+  }
+
+  buildMesh(): THREE.SkinnedMesh {
+    const position = new THREE.Vector3();
+    const materials: THREE.Material[] = [];
+    const geometries: THREE.BufferGeometry[] = [];
+
+    this.buildMeshRec(position, materials, geometries);
+    const geometry = mergeGeometries(geometries, true);
+    const skinnedMesh = new THREE.SkinnedMesh(geometry, materials);
+    return skinnedMesh;
+  }
+
+  private buildMeshRec(
+    position: THREE.Vector3,
+    materials: THREE.Material[],
+    geometries: THREE.BufferGeometry[]
+  ) {
+    const newPosition = position.clone().add(this.position);
+    materials.push(this.material);
+    this.geometry.translate(newPosition.x, newPosition.y, newPosition.z);
+    geometries.push(this.geometry);
+
+    for (const child of this.children) {
+      child.buildMeshRec(newPosition, materials, geometries);
+    }
+  }
+}
 
 function addBone(bone: THREE.Bone): number {
   const idx = bones.length;
@@ -77,14 +115,16 @@ function createArm(namePrefix: "left" | "right") {
 
   const material = new THREE.MeshBasicMaterial({ color });
 
-  const mesh = new THREE.SkinnedMesh(geometry, material);
-
-  mesh.position.set(0.45 * direction, 0.5, 0);
-
-  mesh.add(shoulderBone);
-  meshes.push(mesh);
-
-  return { mesh, shoulderBone, upperBone, lowerBone };
+  return {
+    part: new Part(
+      geometry,
+      material,
+      new THREE.Vector3(0.4 * direction, 0.2, 0)
+    ),
+    shoulderBone,
+    upperBone,
+    lowerBone,
+  };
 }
 
 function createHand(namePrefix: "left" | "right") {
@@ -118,14 +158,14 @@ function createHand(namePrefix: "left" | "right") {
 
   const material = new THREE.MeshBasicMaterial({ color });
 
-  const mesh = new THREE.SkinnedMesh(geometry, material);
-  mesh.position.set(0.35 * direction, 0, 0);
-
-  mesh.add(bone);
-
-  meshes.push(mesh);
-
-  return { mesh, bone };
+  return {
+    part: new Part(
+      geometry,
+      material,
+      new THREE.Vector3(0.35 * direction, 0, 0)
+    ),
+    bone,
+  };
 }
 
 function createLeg(namePrefix: "left" | "right") {
@@ -177,12 +217,15 @@ function createLeg(namePrefix: "left" | "right") {
     color: 0x6496ff,
   });
 
-  const mesh = new THREE.SkinnedMesh(geometry, bodyMaterial);
-  mesh.position.set(0.15 * direction, -0.65, 0);
-  mesh.add(upperLegBone);
-  meshes.push(mesh);
-
-  return { mesh, upperLegBone, lowerLegBone };
+  return {
+    part: new Part(
+      geometry,
+      bodyMaterial,
+      new THREE.Vector3(0.15 * direction, -0.65, 0)
+    ),
+    upperLegBone,
+    lowerLegBone,
+  };
 }
 
 function createFoot(namePrefix: "left" | "right") {
@@ -211,17 +254,14 @@ function createFoot(namePrefix: "left" | "right") {
     new THREE.Float32BufferAttribute(skinWeights, 4)
   );
 
-  const bodyMaterial = new THREE.MeshBasicMaterial({
+  const material = new THREE.MeshBasicMaterial({
     color: 0xb4b4b4,
   });
 
-  const mesh = new THREE.SkinnedMesh(geometry, bodyMaterial);
-  mesh.position.set(0, -0.3, 0.05);
-  mesh.add(bone);
-
-  meshes.push(mesh);
-
-  return { mesh, bone };
+  return {
+    part: new Part(geometry, material, new THREE.Vector3(0, -0.3, 0.05)),
+    bone,
+  };
 }
 
 function createHead() {
@@ -258,14 +298,11 @@ function createHead() {
   );
 
   const material = new THREE.MeshBasicMaterial({ map: faceTexture });
-  const mesh = new THREE.SkinnedMesh(geometry, material);
 
-  mesh.position.set(0, 0.95, 0);
-  mesh.add(bone);
-
-  meshes.push(mesh);
-
-  return { mesh, bone };
+  return {
+    part: new Part(geometry, material, new THREE.Vector3(0, 0.7, 0)),
+    bone,
+  };
 }
 
 function createBody() {
@@ -340,12 +377,14 @@ function createBody() {
     color: 0x333333,
   });
 
-  const mesh = new THREE.SkinnedMesh(bodyGeometry, bodyMaterial);
-  mesh.position.set(0, 0.25, 0);
-  mesh.add(hipsBone);
-  meshes.push(mesh);
-
-  return { mesh, neckBone, upperChestBone, hipsBone, spineBone, chestBone };
+  return {
+    part: new Part(bodyGeometry, bodyMaterial, new THREE.Vector3(0, 0.05, 0)),
+    neckBone,
+    upperChestBone,
+    hipsBone,
+    spineBone,
+    chestBone,
+  };
 }
 
 scene.background = new THREE.Color(0x999999);
@@ -372,43 +411,42 @@ const handR = createHand("right");
 
 const body = createBody();
 
-body.mesh.add(head.mesh);
+body.part.add(head.part);
 body.neckBone.add(head.bone);
 body.upperChestBone.add(armL.shoulderBone);
 body.upperChestBone.add(armR.shoulderBone);
 
-body.mesh.add(armL.mesh);
-body.mesh.add(armR.mesh);
+body.part.add(armL.part);
+body.part.add(armR.part);
 
 armL.lowerBone.add(handL.bone);
 armR.lowerBone.add(handR.bone);
-armL.mesh.add(handL.mesh);
-armR.mesh.add(handR.mesh);
+armL.part.add(handL.part);
+armR.part.add(handR.part);
 
 const legL = createLeg("left");
 const legR = createLeg("right");
 
 body.hipsBone.add(legL.upperLegBone);
 body.hipsBone.add(legR.upperLegBone);
-body.mesh.add(legL.mesh);
-body.mesh.add(legR.mesh);
+body.part.add(legL.part);
+body.part.add(legR.part);
 
 const footL = createFoot("left");
 const footR = createFoot("right");
 
 legL.lowerLegBone.add(footL.bone);
 legR.lowerLegBone.add(footR.bone);
-legL.mesh.add(footL.mesh);
-legR.mesh.add(footR.mesh);
+legL.part.add(footL.part);
+legR.part.add(footR.part);
 
 const skeleton = new THREE.Skeleton(bones);
-
-for (const mesh of meshes) {
-  scene.add(new THREE.SkeletonHelper(mesh));
-  mesh.bind(skeleton);
-}
-
-scene.add(body.mesh);
+const mesh = body.part.buildMesh();
+mesh.add(body.hipsBone);
+mesh.bind(skeleton);
+mesh.position.set(0, 1, 0);
+scene.add(new THREE.SkeletonHelper(mesh));
+scene.add(mesh);
 scene.add(new THREE.GridHelper(10));
 
 function createFaceTextureCanvas() {
@@ -603,7 +641,7 @@ exporter.register((parser) => {
 });
 
 exporter.parse(
-  body.mesh,
+  mesh,
   async (blb: any) => {
     const blob = new Blob([blb], {
       type: "application/octet-stream",
