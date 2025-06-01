@@ -5,7 +5,6 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 
 const scene = new THREE.Scene();
-const model = new THREE.Group();
 const helpers = new THREE.Group();
 const bones: THREE.Bone[] = [];
 const meshes: THREE.SkinnedMesh[] = [];
@@ -31,7 +30,6 @@ function createArm(namePrefix: "left" | "right") {
   shoulderBone.name = `${namePrefix}Shoulder`;
   shoulderBone.position.set(0.1 * direction, 0, 0);
   const shoulderBoneIdx = addBone(shoulderBone);
-  model.add(shoulderBone);
 
   const upperBone = new THREE.Bone();
   upperBone.name = `${namePrefix}UpperArm`;
@@ -47,7 +45,6 @@ function createArm(namePrefix: "left" | "right") {
 
   const geometry = new THREE.CylinderGeometry(0.15 / 2, 0.15 / 2, 0.5, 16, 16);
   geometry.rotateZ(Math.PI / 2);
-  geometry.translate(0.55 * direction, 0.5, 0);
 
   // skinIndices と skinWeights を設定
   const skinIndices: number[] = [];
@@ -58,7 +55,7 @@ function createArm(namePrefix: "left" | "right") {
     skinIndices.push(upperBoneIdx, lowerBoneIdx, 0, 0);
 
     const x = position.getX(i) * direction;
-    const centerX = 0.55;
+    const centerX = 0;
     const threshold = 0.2;
     const edge0 = centerX - threshold;
     const edge1 = centerX + threshold;
@@ -79,9 +76,9 @@ function createArm(namePrefix: "left" | "right") {
 
   const mesh = new THREE.SkinnedMesh(geometry, material);
 
-  mesh.add(shoulderBone);
-  model.add(mesh);
+  mesh.position.set(0.55 * direction, 0.5, 0);
 
+  mesh.add(shoulderBone);
   meshes.push(mesh);
 
   return { mesh, shoulderBone, upperBone, lowerBone };
@@ -97,7 +94,6 @@ function createHand(namePrefix: "left" | "right") {
   const boneIdx = addBone(bone);
 
   const geometry = new THREE.SphereGeometry(0.1, 16);
-  geometry.translate(0.9 * direction, 0.5, 0);
 
   // skinIndices と skinWeights を設定
   const skinIndices: number[] = [];
@@ -120,9 +116,9 @@ function createHand(namePrefix: "left" | "right") {
   const material = new THREE.MeshBasicMaterial({ color });
 
   const mesh = new THREE.SkinnedMesh(geometry, material);
+  mesh.position.set(0.35 * direction, 0, 0);
 
   mesh.add(bone);
-  model.add(mesh);
 
   meshes.push(mesh);
 
@@ -144,7 +140,6 @@ function createLeg(namePrefix: "left" | "right") {
   const lowerLegBoneIdx = addBone(lowerLegBone);
 
   const geometry = new THREE.BoxGeometry(0.15, 0.6, 0.15, 1, 8);
-  geometry.translate(0.2 * direction, -0.4, 0);
 
   const vertexCount = geometry.attributes.position.count;
   const skinIndices: number[] = [];
@@ -155,7 +150,7 @@ function createLeg(namePrefix: "left" | "right") {
 
     const y = position.getY(i);
     const threshold = 0.15;
-    const centerY = -0.4;
+    const centerY = 0;
     const edge0 = centerY - threshold;
     const edge1 = centerY + threshold;
 
@@ -176,8 +171,8 @@ function createLeg(namePrefix: "left" | "right") {
   });
 
   const mesh = new THREE.SkinnedMesh(geometry, bodyMaterial);
+  mesh.position.set(0.2 * direction, -0.65, 0);
   mesh.add(upperLegBone);
-  model.add(mesh);
   meshes.push(mesh);
 
   return { mesh, upperLegBone, lowerLegBone };
@@ -192,7 +187,6 @@ function createFoot(namePrefix: "left" | "right") {
   const boneIdx = addBone(bone);
 
   const geometry = new THREE.BoxGeometry(0.2, 0.1, 0.3, 1, 8);
-  geometry.translate(0.2 * direction, -0.7, 0);
 
   const vertexCount = geometry.attributes.position.count;
   const skinIndices: number[] = [];
@@ -215,8 +209,8 @@ function createFoot(namePrefix: "left" | "right") {
   });
 
   const mesh = new THREE.SkinnedMesh(geometry, bodyMaterial);
+  mesh.position.set(0, -0.3, 0);
   mesh.add(bone);
-  model.add(mesh);
 
   meshes.push(mesh);
 
@@ -239,7 +233,6 @@ function createHead() {
   const geometry = new THREE.SphereGeometry(0.4, 16, 16);
   geometry.rotateY(-Math.PI / 2);
   geometry.scale(1, 1.2, 1);
-  geometry.translate(0, 1.1, 0);
 
   const vertexCount = geometry.attributes.position.count;
   const skinIndices: number[] = [];
@@ -260,8 +253,8 @@ function createHead() {
   const material = new THREE.MeshBasicMaterial({ map: faceTexture });
   const mesh = new THREE.SkinnedMesh(geometry, material);
 
+  mesh.position.set(0, 1.1, 0);
   mesh.add(bone);
-  model.add(mesh);
 
   meshes.push(mesh);
 
@@ -271,7 +264,7 @@ function createHead() {
 function createBody() {
   const hipsBone = new THREE.Bone();
   hipsBone.name = "hips";
-  hipsBone.position.set(0, 0, 0);
+  hipsBone.position.set(0, -0.25, 0);
   const hipsBoneIdx = addBone(hipsBone);
 
   const spineBone = new THREE.Bone();
@@ -300,7 +293,6 @@ function createBody() {
 
   // 胴体メッシュ
   const bodyGeometry = new THREE.BoxGeometry(0.5, 0.6, 0.4, 1, 10);
-  bodyGeometry.translate(0, 0.25, 0);
 
   // 全頂点に hips の影響（boneIndex: 0, weight: 1.0）
   const vertexCount = bodyGeometry.attributes.position.count;
@@ -332,12 +324,12 @@ function createBody() {
     color: 0x333333,
   });
 
-  const bodyMesh = new THREE.SkinnedMesh(bodyGeometry, bodyMaterial);
-  bodyMesh.add(hipsBone);
-  model.add(bodyMesh);
-  meshes.push(bodyMesh);
+  const mesh = new THREE.SkinnedMesh(bodyGeometry, bodyMaterial);
+  mesh.position.set(0, 0.25, 0);
+  mesh.add(hipsBone);
+  meshes.push(mesh);
 
-  return { bodyMesh, neckBone, upperChestBone, hipsBone, spineBone, chestBone };
+  return { mesh, neckBone, upperChestBone, hipsBone, spineBone, chestBone };
 }
 
 scene.background = new THREE.Color(0x999999);
@@ -364,23 +356,34 @@ const handR = createHand("right");
 
 const body = createBody();
 
+body.mesh.add(head.mesh);
 body.neckBone.add(head.bone);
 body.upperChestBone.add(armL.shoulderBone);
 body.upperChestBone.add(armR.shoulderBone);
+
+body.mesh.add(armL.mesh);
+body.mesh.add(armR.mesh);
+
 armL.lowerBone.add(handL.bone);
 armR.lowerBone.add(handR.bone);
+armL.mesh.add(handL.mesh);
+armR.mesh.add(handR.mesh);
 
 const legL = createLeg("left");
 const legR = createLeg("right");
 
 body.hipsBone.add(legL.upperLegBone);
 body.hipsBone.add(legR.upperLegBone);
+body.mesh.add(legL.mesh);
+body.mesh.add(legR.mesh);
 
 const footL = createFoot("left");
 const footR = createFoot("right");
 
 legL.lowerLegBone.add(footL.bone);
 legR.lowerLegBone.add(footR.bone);
+legL.mesh.add(footL.mesh);
+legR.mesh.add(footR.mesh);
 
 const skeleton = new THREE.Skeleton(bones);
 
@@ -389,7 +392,7 @@ for (const mesh of meshes) {
   mesh.bind(skeleton);
 }
 
-scene.add(model);
+scene.add(body.mesh);
 scene.add(helpers);
 
 function createFaceTextureCanvas() {
@@ -584,7 +587,7 @@ exporter.register((parser) => {
 });
 
 exporter.parse(
-  model,
+  body.mesh,
   async (blb: any) => {
     const blob = new Blob([blb], {
       type: "application/octet-stream",
