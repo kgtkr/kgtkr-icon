@@ -20,30 +20,20 @@ class Part {
     this.children.push(part);
   }
 
-  buildMesh(): THREE.SkinnedMesh {
-    const position = new THREE.Vector3();
-    const materials: THREE.Material[] = [];
-    const geometries: THREE.BufferGeometry[] = [];
+  buildMesh(skeleton: THREE.Skeleton): THREE.Group {
+    const group = new THREE.Group();
+    //this.geometry.translate(this.position.x, this.position.y, this.position.z);
+    const skinnedMesh = new THREE.SkinnedMesh(this.geometry, this.material);
 
-    this.buildMeshRec(position, materials, geometries);
-    const geometry = mergeGeometries(geometries, true);
-    const skinnedMesh = new THREE.SkinnedMesh(geometry, materials);
-    return skinnedMesh;
-  }
-
-  private buildMeshRec(
-    position: THREE.Vector3,
-    materials: THREE.Material[],
-    geometries: THREE.BufferGeometry[]
-  ) {
-    const newPosition = position.clone().add(this.position);
-    materials.push(this.material);
-    this.geometry.translate(newPosition.x, newPosition.y, newPosition.z);
-    geometries.push(this.geometry);
+    skinnedMesh.bind(skeleton);
+    group.add(skinnedMesh);
 
     for (const child of this.children) {
-      child.buildMeshRec(newPosition, materials, geometries);
+      const childGroup = child.buildMesh(skeleton);
+      group.add(childGroup);
     }
+
+    return group;
   }
 }
 
@@ -81,11 +71,12 @@ function createArm(namePrefix: "left" | "right") {
   upperBone.add(lowerBone);
   const lowerBoneIdx = addBone(lowerBone);
 
-  const geometry1 = new THREE.CylinderGeometry(0.15 / 2, 0.15 / 2, 0.5, 16, 16);
+  const geometry1 = new THREE.CylinderGeometry(0.15 / 2, 0.15 / 2, 0.3, 16, 16);
   const geometry2 = new THREE.SphereGeometry(0.15 / 2, 16, 16);
-  geometry2.translate(0, direction * 0.25, 0);
+  geometry2.translate(0, direction * 0.15, 0);
   const geometry = mergeGeometries([geometry1, geometry2]);
   geometry.rotateZ(Math.PI / 2);
+  geometry.translate(0.15 * direction, 0, 0);
 
   // skinIndices と skinWeights を設定
   const skinIndices: number[] = [];
@@ -183,10 +174,11 @@ function createLeg(namePrefix: "left" | "right") {
   const lowerLegBoneIdx = addBone(lowerLegBone);
 
   // const geometry = new THREE.BoxGeometry(0.15, 0.6, 0.15, 1, 8);
-  const geometry1 = new THREE.CylinderGeometry(0.15 / 2, 0.15 / 2, 0.6, 16, 16);
+  const geometry1 = new THREE.CylinderGeometry(0.15 / 2, 0.15 / 2, 0.4, 16, 16);
   const geometry2 = new THREE.SphereGeometry(0.15 / 2, 16, 16);
-  geometry2.translate(0, 0.3, 0);
+  geometry2.translate(0, 0.2, 0);
   const geometry = mergeGeometries([geometry1, geometry2]);
+  geometry.translate(0, -0.14, 0);
 
   const vertexCount = geometry.attributes.position.count;
   const skinIndices: number[] = [];
@@ -237,6 +229,7 @@ function createFoot(namePrefix: "left" | "right") {
   const boneIdx = addBone(bone);
 
   const geometry = new THREE.BoxGeometry(0.2, 0.1, 0.3, 1, 8);
+  geometry.translate(0, 0, 0.05);
 
   const vertexCount = geometry.attributes.position.count;
   const skinIndices: number[] = [];
@@ -280,6 +273,7 @@ function createHead() {
   const geometry = new THREE.SphereGeometry(0.35, 16, 16);
   geometry.rotateY(-Math.PI / 2);
   geometry.scale(0.83, 1, 1);
+  geometry.translate(0, 0.3, 0);
 
   const vertexCount = geometry.attributes.position.count;
   const skinIndices: number[] = [];
@@ -327,13 +321,13 @@ function createBody() {
   upperChestBone.name = "upperChest";
   upperChestBone.position.set(0, 0.2, 0);
   chestBone.add(upperChestBone);
-  addBone(upperChestBone);
+  const upperChestBoneIdx = addBone(upperChestBone);
 
   const neckBone = new THREE.Bone();
   neckBone.name = "neck";
   neckBone.position.set(0, 0.05, 0);
   upperChestBone.add(neckBone);
-  addBone(neckBone);
+  const neckBoneIdx = addBone(neckBone);
 
   // 胴体メッシュ
   const bodyGeometry1 = new THREE.CylinderGeometry(0.15, 0.25, 0.4, 16, 16);
@@ -346,6 +340,7 @@ function createBody() {
     bodyGeometry2,
     bodyGeometry3,
   ]);
+  bodyGeometry.translate(0, 0.2, 0);
 
   // 全頂点に hips の影響（boneIndex: 0, weight: 1.0）
   const vertexCount = bodyGeometry.attributes.position.count;
@@ -353,16 +348,26 @@ function createBody() {
   const skinWeights: number[] = [];
   const position = bodyGeometry.attributes.position;
   for (let i = 0; i < vertexCount; i++) {
+    // yは-0.3～0.4
     const y = position.getY(i);
-    if (y > 0) {
-      skinIndices.push(hipsBoneIdx, 0, 0, 0);
-    } else if (y > -30) {
-      skinIndices.push(spineBoneIdx, 0, 0, 0);
-    } else {
-      skinIndices.push(chestBoneIdx, 0, 0, 0);
-    }
 
-    skinWeights.push(1, 0, 0, 0);
+    if (y < -0.1) {
+      skinIndices.push(hipsBoneIdx, spineBoneIdx, 0, 0);
+      const weight = smoothstep(-0.3, -0.1, y);
+      skinWeights.push(1 - weight, weight, 0, 0);
+    } else if (y < 0.1) {
+      skinIndices.push(spineBoneIdx, chestBoneIdx, 0, 0);
+      const weight = smoothstep(-0.1, 0.1, y);
+      skinWeights.push(1 - weight, weight, 0, 0);
+    } else if (y < 0.3) {
+      skinIndices.push(chestBoneIdx, upperChestBoneIdx, 0, 0);
+      const weight = smoothstep(0.1, 0.3, y);
+      skinWeights.push(1 - weight, weight, 0, 0);
+    } else {
+      skinIndices.push(upperChestBoneIdx, neckBoneIdx, 0, 0);
+      const weight = smoothstep(0.3, 0.4, y);
+      skinWeights.push(1 - weight, weight, 0, 0);
+    }
   }
   bodyGeometry.setAttribute(
     "skinIndex",
@@ -441,10 +446,12 @@ legL.part.add(footL.part);
 legR.part.add(footR.part);
 
 const skeleton = new THREE.Skeleton(bones);
-const mesh = body.part.buildMesh();
+console.log(skeleton);
+console.log(body.part);
+const mesh = body.part.buildMesh(skeleton);
+mesh.position.add(new THREE.Vector3(0, 1, 0));
+console.log(mesh);
 mesh.add(body.hipsBone);
-mesh.bind(skeleton);
-mesh.position.set(0, 1, 0);
 scene.add(new THREE.SkeletonHelper(mesh));
 scene.add(mesh);
 scene.add(new THREE.GridHelper(10));
@@ -633,6 +640,146 @@ exporter.register((parser) => {
         },
         humanoid: {
           humanBones,
+        },
+        expressions: {
+          preset: {
+            happy: {
+              name: "happy",
+              isBinary: false,
+              overrideBlink: "none",
+              overrideLookAt: "none",
+              overrideMouth: "none",
+              morphTargetBinds: [],
+            },
+            angry: {
+              name: "angry",
+              isBinary: false,
+              overrideBlink: "none",
+              overrideLookAt: "none",
+              overrideMouth: "none",
+              morphTargetBinds: [],
+            },
+            sad: {
+              name: "sad",
+              isBinary: false,
+              overrideBlink: "none",
+              overrideLookAt: "none",
+              overrideMouth: "none",
+              morphTargetBinds: [],
+            },
+            relaxed: {
+              name: "relaxed",
+              isBinary: false,
+              overrideBlink: "none",
+              overrideLookAt: "none",
+              overrideMouth: "none",
+              morphTargetBinds: [],
+            },
+            surprised: {
+              name: "surprised",
+              isBinary: false,
+              overrideBlink: "none",
+              overrideLookAt: "none",
+              overrideMouth: "none",
+              morphTargetBinds: [],
+            },
+            aa: {
+              name: "aa",
+              isBinary: false,
+              overrideBlink: "none",
+              overrideLookAt: "none",
+              overrideMouth: "block",
+              morphTargetBinds: [],
+            },
+            ih: {
+              name: "ih",
+              isBinary: false,
+              overrideBlink: "none",
+              overrideLookAt: "none",
+              overrideMouth: "block",
+              morphTargetBinds: [],
+            },
+            ou: {
+              name: "ou",
+              isBinary: false,
+              overrideBlink: "none",
+              overrideLookAt: "none",
+              overrideMouth: "block",
+              morphTargetBinds: [],
+            },
+            ee: {
+              name: "ee",
+              isBinary: false,
+              overrideBlink: "none",
+              overrideLookAt: "none",
+              overrideMouth: "block",
+              morphTargetBinds: [],
+            },
+            oh: {
+              name: "oh",
+              isBinary: false,
+              overrideBlink: "none",
+              overrideLookAt: "none",
+              overrideMouth: "block",
+              morphTargetBinds: [],
+            },
+            blink: {
+              name: "blink",
+              isBinary: false,
+              overrideBlink: "block",
+              overrideLookAt: "none",
+              overrideMouth: "none",
+              morphTargetBinds: [],
+            },
+            blinkLeft: {
+              name: "blinkLeft",
+              isBinary: false,
+              overrideBlink: "block",
+              overrideLookAt: "none",
+              overrideMouth: "none",
+              morphTargetBinds: [],
+            },
+            blinkRight: {
+              name: "blinkRight",
+              isBinary: false,
+              overrideBlink: "block",
+              overrideLookAt: "none",
+              overrideMouth: "none",
+              morphTargetBinds: [],
+            },
+            lookUp: {
+              name: "lookUp",
+              isBinary: false,
+              overrideBlink: "none",
+              overrideLookAt: "block",
+              overrideMouth: "none",
+              morphTargetBinds: [],
+            },
+            lookDown: {
+              name: "lookDown",
+              isBinary: false,
+              overrideBlink: "none",
+              overrideLookAt: "block",
+              overrideMouth: "none",
+              morphTargetBinds: [],
+            },
+            lookLeft: {
+              name: "lookLeft",
+              isBinary: false,
+              overrideBlink: "none",
+              overrideLookAt: "block",
+              overrideMouth: "none",
+              morphTargetBinds: [],
+            },
+            lookRight: {
+              name: "lookRight",
+              isBinary: false,
+              overrideBlink: "none",
+              overrideLookAt: "block",
+              overrideMouth: "none",
+              morphTargetBinds: [],
+            },
+          },
         },
       };
       console.log("afterParse:", JSON.parse(JSON.stringify(gltf)));
