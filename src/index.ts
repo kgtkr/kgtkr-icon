@@ -37,6 +37,46 @@ class Part {
   }
 }
 
+function createSphereCylinder({
+  radiusTop,
+  radiusBottom,
+  height,
+  sphereTop,
+  sphereBottom,
+}: {
+  radiusTop: number;
+  radiusBottom: number;
+  height: number;
+  sphereTop: boolean;
+  sphereBottom: boolean;
+}) {
+  const geometries: THREE.BufferGeometry[] = [];
+  const topHeight = sphereTop ? radiusTop : 0;
+  const bottomHeight = sphereBottom ? radiusBottom : 0;
+  const cylinderHeight = height - topHeight - bottomHeight;
+
+  if (sphereTop) {
+    const geometry = new THREE.SphereGeometry(radiusTop, 16, 16);
+    geometry.translate(0, cylinderHeight / 2, 0);
+    geometries.push(geometry);
+  }
+
+  geometries.push(
+    new THREE.CylinderGeometry(radiusTop, radiusBottom, cylinderHeight, 16, 16)
+  );
+
+  if (sphereBottom) {
+    const geometry = new THREE.SphereGeometry(radiusBottom, 16, 16);
+    geometry.translate(0, -cylinderHeight / 2, 0);
+    geometries.push(geometry);
+  }
+
+  const geometry = mergeGeometries(geometries);
+  geometry.translate(0, cylinderHeight / 2 + bottomHeight, 0);
+
+  return geometry;
+}
+
 function addBone(bone: THREE.Bone): number {
   const idx = bones.length;
   bones.push(bone);
@@ -325,50 +365,54 @@ function createBody() {
 
   const neckBone = new THREE.Bone();
   neckBone.name = "neck";
-  neckBone.position.set(0, 0.05, 0);
+  neckBone.position.set(0, 0.1, 0);
   upperChestBone.add(neckBone);
   const neckBoneIdx = addBone(neckBone);
 
   // 胴体メッシュ
-  const bodyGeometry1 = new THREE.CylinderGeometry(0.15, 0.25, 0.4, 16, 16);
-  const bodyGeometry2 = new THREE.SphereGeometry(0.15, 16, 16);
-  bodyGeometry2.translate(0, 0.2, 0);
-  const bodyGeometry3 = new THREE.SphereGeometry(0.25, 16, 16);
-  bodyGeometry3.translate(0, -0.25, 0);
-  const bodyGeometry = mergeGeometries([
-    bodyGeometry1,
-    bodyGeometry2,
-    bodyGeometry3,
-  ]);
-  bodyGeometry.translate(0, 0.2, 0);
+  const bodyHeight = 0.6;
+  const bodyGeometry = createSphereCylinder({
+    radiusTop: 0.1,
+    radiusBottom: 0.2,
+    height: bodyHeight,
+    sphereTop: true,
+    sphereBottom: true,
+  });
+  const bodyOffsetY = -0.5;
+  bodyGeometry.translate(0, bodyOffsetY, 0);
 
-  // 全頂点に hips の影響（boneIndex: 0, weight: 1.0）
   const vertexCount = bodyGeometry.attributes.position.count;
   const skinIndices: number[] = [];
   const skinWeights: number[] = [];
   const position = bodyGeometry.attributes.position;
   for (let i = 0; i < vertexCount; i++) {
-    // yは-0.3～0.4
     const y = position.getY(i);
 
-    if (y < -0.1) {
+    const edge0 = bodyOffsetY;
+    const edge1 = bodyOffsetY + bodyHeight * 0.4;
+    const edge2 = bodyOffsetY + bodyHeight * 0.6;
+    const edge3 = bodyOffsetY + bodyHeight * 0.8;
+    const edge4 = bodyOffsetY + bodyHeight;
+
+    if (y < edge1) {
       skinIndices.push(hipsBoneIdx, spineBoneIdx, 0, 0);
-      const weight = smoothstep(-0.3, -0.1, y);
+      const weight = smoothstep(edge0, edge1, y);
       skinWeights.push(1 - weight, weight, 0, 0);
-    } else if (y < 0.1) {
+    } else if (y < edge2) {
       skinIndices.push(spineBoneIdx, chestBoneIdx, 0, 0);
-      const weight = smoothstep(-0.1, 0.1, y);
+      const weight = smoothstep(edge1, edge2, y);
       skinWeights.push(1 - weight, weight, 0, 0);
-    } else if (y < 0.3) {
+    } else if (y < edge3) {
       skinIndices.push(chestBoneIdx, upperChestBoneIdx, 0, 0);
-      const weight = smoothstep(0.1, 0.3, y);
+      const weight = smoothstep(edge2, edge3, y);
       skinWeights.push(1 - weight, weight, 0, 0);
     } else {
       skinIndices.push(upperChestBoneIdx, neckBoneIdx, 0, 0);
-      const weight = smoothstep(0.3, 0.4, y);
+      const weight = smoothstep(edge3, edge4, y);
       skinWeights.push(1 - weight, weight, 0, 0);
     }
   }
+
   bodyGeometry.setAttribute(
     "skinIndex",
     new THREE.Uint16BufferAttribute(skinIndices, 4)
