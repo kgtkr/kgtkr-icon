@@ -5,6 +5,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
+const enableBone = true;
 const scene = new THREE.Scene();
 const bones: THREE.Bone[] = [];
 
@@ -22,11 +23,16 @@ class Part {
 
   buildMesh(skeleton: THREE.Skeleton): THREE.Group {
     const group = new THREE.Group();
-    //this.geometry.translate(this.position.x, this.position.y, this.position.z);
-    const skinnedMesh = new THREE.SkinnedMesh(this.geometry, this.material);
+    group.position.set(this.position.x, this.position.y, this.position.z);
+    const mesh = enableBone
+      ? (() => {
+          const mesh = new THREE.SkinnedMesh(this.geometry, this.material);
+          mesh.bind(skeleton);
+          return mesh;
+        })()
+      : new THREE.Mesh(this.geometry, this.material);
 
-    skinnedMesh.bind(skeleton);
-    group.add(skinnedMesh);
+    group.add(mesh);
 
     for (const child of this.children) {
       const childGroup = child.buildMesh(skeleton);
@@ -111,12 +117,16 @@ function createArm(namePrefix: "left" | "right") {
   upperBone.add(lowerBone);
   const lowerBoneIdx = addBone(lowerBone);
 
-  const geometry1 = new THREE.CylinderGeometry(0.15 / 2, 0.15 / 2, 0.3, 16, 16);
-  const geometry2 = new THREE.SphereGeometry(0.15 / 2, 16, 16);
-  geometry2.translate(0, direction * 0.15, 0);
-  const geometry = mergeGeometries([geometry1, geometry2]);
-  geometry.rotateZ(Math.PI / 2);
-  geometry.translate(0.15 * direction, 0, 0);
+  const geometry = createSphereCylinder({
+    radiusTop: 0.15 / 2,
+    radiusBottom: 0.15 / 2,
+    height: 0.5,
+    sphereTop: true,
+    sphereBottom: false,
+  });
+  geometry.translate(0, -0.5 / 2, 0);
+  geometry.rotateZ(direction * (Math.PI / 2));
+  geometry.translate(0.05 * direction, 0, 0);
 
   // skinIndices と skinWeights を設定
   const skinIndices: number[] = [];
@@ -213,12 +223,14 @@ function createLeg(namePrefix: "left" | "right") {
   upperLegBone.add(lowerLegBone);
   const lowerLegBoneIdx = addBone(lowerLegBone);
 
-  // const geometry = new THREE.BoxGeometry(0.15, 0.6, 0.15, 1, 8);
-  const geometry1 = new THREE.CylinderGeometry(0.15 / 2, 0.15 / 2, 0.4, 16, 16);
-  const geometry2 = new THREE.SphereGeometry(0.15 / 2, 16, 16);
-  geometry2.translate(0, 0.2, 0);
-  const geometry = mergeGeometries([geometry1, geometry2]);
-  geometry.translate(0, -0.14, 0);
+  const geometry = createSphereCylinder({
+    radiusTop: 0.15 / 2,
+    radiusBottom: 0.15 / 2,
+    height: 0.5,
+    sphereTop: true,
+    sphereBottom: false,
+  });
+  geometry.translate(0, -0.3, 0);
 
   const vertexCount = geometry.attributes.position.count;
   const skinIndices: number[] = [];
@@ -269,7 +281,7 @@ function createFoot(namePrefix: "left" | "right") {
   const boneIdx = addBone(bone);
 
   const geometry = new THREE.BoxGeometry(0.2, 0.1, 0.3, 1, 8);
-  geometry.translate(0, 0, 0.05);
+  geometry.translate(0, 0, 0);
 
   const vertexCount = geometry.attributes.position.count;
   const skinIndices: number[] = [];
@@ -334,7 +346,7 @@ function createHead() {
   const material = new THREE.MeshBasicMaterial({ map: faceTexture });
 
   return {
-    part: new Part(geometry, material, new THREE.Vector3(0, 0.7, 0)),
+    part: new Part(geometry, material, new THREE.Vector3(0, 0.4, 0)),
     bone,
   };
 }
@@ -370,10 +382,10 @@ function createBody() {
   const neckBoneIdx = addBone(neckBone);
 
   // 胴体メッシュ
-  const bodyHeight = 0.6;
+  const bodyHeight = 0.8;
   const bodyGeometry = createSphereCylinder({
-    radiusTop: 0.1,
-    radiusBottom: 0.2,
+    radiusTop: 0.15,
+    radiusBottom: 0.25,
     height: bodyHeight,
     sphereTop: true,
     sphereBottom: true,
@@ -388,10 +400,18 @@ function createBody() {
   for (let i = 0; i < vertexCount; i++) {
     const y = position.getY(i);
 
-    const edge0 = bodyOffsetY;
-    const edge1 = bodyOffsetY + bodyHeight * 0.4;
-    const edge2 = bodyOffsetY + bodyHeight * 0.6;
-    const edge3 = bodyOffsetY + bodyHeight * 0.8;
+    skinIndices.push(
+      hipsBoneIdx,
+      spineBoneIdx,
+      chestBoneIdx,
+      upperChestBoneIdx
+    );
+    skinWeights.push(0.05, 0.1, 0.8, 0.05);
+
+    /*const edge0 = bodyOffsetY;
+    const edge1 = bodyOffsetY + bodyHeight * 0.1;
+    const edge2 = bodyOffsetY + bodyHeight * 0.2;
+    const edge3 = bodyOffsetY + bodyHeight * 0.9;
     const edge4 = bodyOffsetY + bodyHeight;
 
     if (y < edge1) {
@@ -410,7 +430,7 @@ function createBody() {
       skinIndices.push(upperChestBoneIdx, neckBoneIdx, 0, 0);
       const weight = smoothstep(edge3, edge4, y);
       skinWeights.push(1 - weight, weight, 0, 0);
-    }
+    }*/
   }
 
   bodyGeometry.setAttribute(
@@ -495,8 +515,10 @@ console.log(body.part);
 const mesh = body.part.buildMesh(skeleton);
 mesh.position.add(new THREE.Vector3(0, 1, 0));
 console.log(mesh);
-mesh.add(body.hipsBone);
-scene.add(new THREE.SkeletonHelper(mesh));
+if (enableBone) {
+  mesh.add(body.hipsBone);
+  scene.add(new THREE.SkeletonHelper(mesh));
+}
 scene.add(mesh);
 scene.add(new THREE.GridHelper(10));
 
@@ -601,10 +623,13 @@ function drawEye(g, x, y, flip = false) {
   g.restore();
 }
 
+let frameCount = 0;
+
 function animate() {
   requestAnimationFrame(animate);
 
-  const t = Date.now() * 0.001;
+  frameCount++;
+  const t = frameCount * 0.02;
   head.bone.rotation.z = Math.sin(t + 1.5) * 0.3;
   armL.upperBone.rotation.z = -Math.abs(Math.sin(t)) * 0.7;
   armR.upperBone.rotation.z = Math.abs(Math.sin(t)) * 0.7;
