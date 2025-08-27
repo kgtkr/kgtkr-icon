@@ -6,6 +6,9 @@ import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 const enableBone = true;
+const debugBoneWeights = false; // ボーンウェイトの可視化デバッグ
+const debugTargetBoneIndex: number = 10; // デバッグ対象のボーンインデックス（-1で全ボーン表示）
+const boneAnimation = false;
 const scene = new THREE.Scene();
 const bones: THREE.Bone[] = [];
 
@@ -27,7 +30,17 @@ class Part {
     const mesh = enableBone
       ? (() => {
           const mesh = new THREE.SkinnedMesh(this.geometry, this.material);
-          mesh.bind(skeleton);
+          // モーフターゲットが存在する場合、morphTargetInfluencesを初期化
+          if (
+            this.geometry.morphAttributes.position &&
+            this.geometry.morphAttributes.position.length > 0
+          ) {
+            mesh.morphTargetInfluences = new Array(
+              this.geometry.morphAttributes.position.length
+            ).fill(0);
+          }
+          mesh.bind(skeleton, mesh.matrixWorld);
+          //mesh.bindMode = "detached";
           return mesh;
         })()
       : new THREE.Mesh(this.geometry, this.material);
@@ -87,6 +100,38 @@ function addBone(bone: THREE.Bone): number {
   const idx = bones.length;
   bones.push(bone);
   return idx;
+}
+
+function addBoneWeightVisualization(geometry: THREE.BufferGeometry) {
+  if (!debugBoneWeights) return;
+
+  const vertexCount = geometry.attributes.position.count;
+  const colors: number[] = [];
+  const skinIndices = geometry.attributes.skinIndex.array as Uint16Array;
+  const skinWeights = geometry.attributes.skinWeight.array as Float32Array;
+
+  // 特定のボーンの影響範囲のみ表示
+  for (let i = 0; i < vertexCount; i++) {
+    let weight = 0;
+
+    // この頂点が対象ボーンの影響を受けているかチェック
+    for (let j = 0; j < 4; j++) {
+      const boneIndex = skinIndices[i * 4 + j];
+      if (boneIndex === debugTargetBoneIndex) {
+        weight = skinWeights[i * 4 + j];
+        break;
+      }
+    }
+
+    // ウェイトに応じて色を設定（赤＝強い影響、黒＝影響なし）
+    const red = weight;
+    const green = weight * 0.3; // 少し緑を混ぜて見やすく
+    const blue = 0;
+
+    colors.push(red, green, blue);
+  }
+
+  geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
 }
 
 function smoothstep(edge0: number, edge1: number, x: number): number {
@@ -154,7 +199,12 @@ function createArm(namePrefix: "left" | "right") {
     new THREE.Float32BufferAttribute(skinWeights, 4)
   );
 
-  const material = new THREE.MeshBasicMaterial({ color });
+  // ボーンウェイトの可視化を追加
+  addBoneWeightVisualization(geometry);
+
+  const material = debugBoneWeights
+    ? new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true })
+    : new THREE.MeshBasicMaterial({ color });
 
   return {
     part: new Part(
@@ -197,7 +247,12 @@ function createHand(namePrefix: "left" | "right") {
     new THREE.Float32BufferAttribute(skinWeights, 4)
   );
 
-  const material = new THREE.MeshBasicMaterial({ color });
+  // ボーンウェイトの可視化を追加
+  addBoneWeightVisualization(geometry);
+
+  const material = debugBoneWeights
+    ? new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true })
+    : new THREE.MeshBasicMaterial({ color });
 
   return {
     part: new Part(
@@ -257,9 +312,12 @@ function createLeg(namePrefix: "left" | "right") {
     new THREE.Float32BufferAttribute(skinWeights, 4)
   );
 
-  const bodyMaterial = new THREE.MeshBasicMaterial({
-    color: 0x6496ff,
-  });
+  // ボーンウェイトの可視化を追加
+  addBoneWeightVisualization(geometry);
+
+  const bodyMaterial = debugBoneWeights
+    ? new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true })
+    : new THREE.MeshBasicMaterial({ color: 0x6496ff });
 
   return {
     part: new Part(
@@ -299,9 +357,12 @@ function createFoot(namePrefix: "left" | "right") {
     new THREE.Float32BufferAttribute(skinWeights, 4)
   );
 
-  const material = new THREE.MeshBasicMaterial({
-    color: 0xb4b4b4,
-  });
+  // ボーンウェイトの可視化を追加
+  addBoneWeightVisualization(geometry);
+
+  const material = debugBoneWeights
+    ? new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true })
+    : new THREE.MeshBasicMaterial({ color: 0xb4b4b4 });
 
   return {
     part: new Part(geometry, material, new THREE.Vector3(0, -0.3, 0.05)),
@@ -310,11 +371,27 @@ function createFoot(namePrefix: "left" | "right") {
 }
 
 function createHead() {
-  const faceTexture = new THREE.CanvasTexture(createFaceTextureCanvas());
+  // 複数の表情テクスチャを作成
+  const normalTexture = new THREE.CanvasTexture(
+    createFaceTextureCanvas("normal")
+  );
+  const aaTexture = new THREE.CanvasTexture(createFaceTextureCanvas("aa"));
+
+  // デバッグ用に画像を表示
   {
-    const img = document.createElement("img");
-    img.src = faceTexture.image.toDataURL();
-    document.body.appendChild(img);
+    const img1 = document.createElement("img");
+    img1.src = normalTexture.image.toDataURL();
+    img1.style.width = "128px";
+    img1.style.height = "128px";
+    img1.title = "Normal Face";
+    document.body.appendChild(img1);
+
+    const img2 = document.createElement("img");
+    img2.src = aaTexture.image.toDataURL();
+    img2.style.width = "128px";
+    img2.style.height = "128px";
+    img2.title = "AA Face";
+    document.body.appendChild(img2);
   }
 
   const bone = new THREE.Bone();
@@ -326,6 +403,30 @@ function createHead() {
   geometry.rotateY(-Math.PI / 2);
   geometry.scale(0.83, 1, 1);
   geometry.translate(0, 0.3, 0);
+
+  // モーフターゲット用のジオメトリを作成（口を開いた状態）
+  const aaGeometry = geometry.clone();
+  const positions = aaGeometry.attributes.position;
+  const positionsArray = positions.array as Float32Array;
+
+  // 口の部分の頂点を変形（Y座標が低く、Z座標が前面の頂点を対象）
+  for (let i = 0; i < positions.count; i++) {
+    const x = positionsArray[i * 3];
+    const y = positionsArray[i * 3 + 1];
+    const z = positionsArray[i * 3 + 2];
+
+    // 口の領域（顔の下部、前面）を判定
+    if (y < 0.1 && y > -0.15 && z > 0.2 && Math.abs(x) < 0.15) {
+      // 口を開く変形：下方向に移動
+      positionsArray[i * 3 + 1] = y - 0.05; // Y座標を下げる
+      // 口の奥行きも少し調整
+      positionsArray[i * 3 + 2] = z - 0.02; // Z座標を少し後ろに
+    }
+  }
+
+  // モーフターゲットを設定
+  geometry.morphAttributes.position = [aaGeometry.attributes.position];
+  geometry.morphTargetsRelative = false;
 
   const vertexCount = geometry.attributes.position.count;
   const skinIndices: number[] = [];
@@ -343,11 +444,22 @@ function createHead() {
     new THREE.Float32BufferAttribute(skinWeights, 4)
   );
 
-  const material = new THREE.MeshBasicMaterial({ map: faceTexture });
+  // ボーンウェイトの可視化を追加（ただし頭部はテクスチャ優先）
+  if (debugBoneWeights) {
+    addBoneWeightVisualization(geometry);
+  }
+
+  const material = debugBoneWeights
+    ? new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true })
+    : new THREE.MeshBasicMaterial({ map: normalTexture });
 
   return {
     part: new Part(geometry, material, new THREE.Vector3(0, 0.4, 0)),
     bone,
+    normalTexture,
+    aaTexture,
+    material,
+    geometry, // モーフターゲット付きジオメトリを返す
   };
 }
 
@@ -400,18 +512,18 @@ function createBody() {
   for (let i = 0; i < vertexCount; i++) {
     const y = position.getY(i);
 
-    skinIndices.push(
+    /* skinIndices.push(
       hipsBoneIdx,
       spineBoneIdx,
       chestBoneIdx,
       upperChestBoneIdx
     );
-    skinWeights.push(0.05, 0.1, 0.8, 0.05);
+    skinWeights.push(0.05, 0.1, 0.8, 0.05);*/
 
-    /*const edge0 = bodyOffsetY;
+    const edge0 = bodyOffsetY;
     const edge1 = bodyOffsetY + bodyHeight * 0.1;
-    const edge2 = bodyOffsetY + bodyHeight * 0.2;
-    const edge3 = bodyOffsetY + bodyHeight * 0.9;
+    const edge2 = bodyOffsetY + bodyHeight * 0.4;
+    const edge3 = bodyOffsetY + bodyHeight * 0.8;
     const edge4 = bodyOffsetY + bodyHeight;
 
     if (y < edge1) {
@@ -430,7 +542,7 @@ function createBody() {
       skinIndices.push(upperChestBoneIdx, neckBoneIdx, 0, 0);
       const weight = smoothstep(edge3, edge4, y);
       skinWeights.push(1 - weight, weight, 0, 0);
-    }*/
+    }
   }
 
   bodyGeometry.setAttribute(
@@ -442,9 +554,16 @@ function createBody() {
     new THREE.Float32BufferAttribute(skinWeights, 4)
   );
 
-  const bodyMaterial = new THREE.MeshBasicMaterial({
-    color: 0x333333,
-  });
+  // ボーンウェイトの可視化を追加
+  addBoneWeightVisualization(bodyGeometry);
+
+  const bodyMaterial = debugBoneWeights
+    ? new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        vertexColors: true,
+        wireframe: true,
+      })
+    : new THREE.MeshBasicMaterial({ color: 0x333333 });
 
   return {
     part: new Part(bodyGeometry, bodyMaterial, new THREE.Vector3(0, 0.05, 0)),
@@ -470,7 +589,81 @@ document.body.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 
+// VRM標準に従った表情制御システム
+class ExpressionController {
+  private headMaterial: THREE.MeshBasicMaterial;
+  private normalTexture: THREE.CanvasTexture;
+  private aaTexture: THREE.CanvasTexture;
+  private currentExpression: string = "normal";
+  private headMesh: THREE.SkinnedMesh | null = null;
+
+  constructor(head: any) {
+    this.headMaterial = head.material;
+    this.normalTexture = head.normalTexture;
+    this.aaTexture = head.aaTexture;
+  }
+
+  // メッシュを設定（ビルド後に呼び出す）
+  setHeadMesh(mesh: THREE.Group) {
+    this.findHeadMesh(mesh);
+  }
+
+  private findHeadMesh(object: THREE.Object3D) {
+    if (
+      object instanceof THREE.SkinnedMesh &&
+      object.morphTargetInfluences &&
+      object.morphTargetInfluences.length > 0
+    ) {
+      this.headMesh = object;
+      return;
+    }
+
+    for (const child of object.children) {
+      this.findHeadMesh(child);
+      if (this.headMesh) return;
+    }
+  }
+
+  setExpression(expression: string, weight: number = 1.0) {
+    if (this.currentExpression === expression) return;
+
+    this.currentExpression = expression;
+
+    switch (expression) {
+      case "aa":
+        // モーフターゲット制御（VRM標準）
+        if (this.headMesh && this.headMesh.morphTargetInfluences) {
+          this.headMesh.morphTargetInfluences[0] = weight;
+        }
+        // テクスチャ制御（追加効果）
+        this.headMaterial.map = this.aaTexture;
+        break;
+      case "normal":
+      default:
+        // モーフターゲットをリセット
+        if (this.headMesh && this.headMesh.morphTargetInfluences) {
+          this.headMesh.morphTargetInfluences[0] = 0;
+        }
+        // 通常テクスチャに戻す
+        this.headMaterial.map = this.normalTexture;
+        break;
+    }
+
+    this.headMaterial.needsUpdate = true;
+  }
+
+  getCurrentExpression(): string {
+    return this.currentExpression;
+  }
+
+  // VRM Expressionから呼び出すメソッド
+  setExpressionWeight(expressionName: string, weight: number) {
+    this.setExpression(expressionName, weight);
+  }
+}
+
 const head = createHead();
+const expressionController = new ExpressionController(head);
 
 const armL = createArm("left");
 const armR = createArm("right");
@@ -510,11 +703,16 @@ legL.part.add(footL.part);
 legR.part.add(footR.part);
 
 const skeleton = new THREE.Skeleton(bones);
+
 console.log(skeleton);
 console.log(body.part);
 const mesh = body.part.buildMesh(skeleton);
 mesh.position.add(new THREE.Vector3(0, 1, 0));
 console.log(mesh);
+
+// ExpressionControllerにメッシュを設定
+expressionController.setHeadMesh(mesh);
+
 if (enableBone) {
   mesh.add(body.hipsBone);
   scene.add(new THREE.SkeletonHelper(mesh));
@@ -522,7 +720,7 @@ if (enableBone) {
 scene.add(mesh);
 scene.add(new THREE.GridHelper(10));
 
-function createFaceTextureCanvas() {
+function createFaceTextureCanvas(expression: string = "normal") {
   const UP_SCALE = 4;
   const width = 256;
   const height = 256;
@@ -569,18 +767,30 @@ function createFaceTextureCanvas() {
   g.ellipse(144, 135, 10, 6, 0, Math.PI * (200 / 180), Math.PI * (340 / 180));
   g.stroke();
 
-  // 口
+  // 口の描画（表情に応じて変更）
   g.lineWidth = 3;
-  g.beginPath();
-  g.moveTo(118, 185);
-  g.lineTo(138, 185);
-  g.stroke();
+  g.strokeStyle = "black";
+
+  if (expression === "aa") {
+    // "aa"表情: 口を大きく開く
+    g.fillStyle = "black";
+    g.beginPath();
+    g.ellipse(128, 190, 8, 12, 0, 0, Math.PI * 2);
+    g.fill();
+  } else {
+    // 通常の口
+    g.beginPath();
+    g.moveTo(118, 185);
+    g.lineTo(138, 185);
+    g.stroke();
+  }
 
   // 目
   drawEye(g, 113, 146); // 左
   drawEye(g, 143, 146, true); // 右（反転）
 
   // 鼻
+  g.strokeStyle = "black";
   g.beginPath();
   g.ellipse(128, 168, 5, 3, 0, 0, Math.PI);
   g.lineWidth = 2;
@@ -630,19 +840,32 @@ function animate() {
 
   frameCount++;
   const t = frameCount * 0.02;
-  head.bone.rotation.z = Math.sin(t + 1.5) * 0.3;
-  armL.upperBone.rotation.z = -Math.abs(Math.sin(t)) * 0.7;
-  armR.upperBone.rotation.z = Math.abs(Math.sin(t)) * 0.7;
 
-  armL.lowerBone.rotation.z = -Math.abs(Math.sin(t)) * 0.7;
-  armR.lowerBone.rotation.z = Math.abs(Math.sin(t)) * 0.7;
-  body.hipsBone.rotation.z = Math.sin(t + 2) * 0.3;
+  if (boneAnimation) {
+    head.bone.rotation.z = Math.sin(t + 1.5) * 0.3;
+    armL.upperBone.rotation.z = -Math.abs(Math.sin(t)) * 0.7;
+    armR.upperBone.rotation.z = Math.abs(Math.sin(t)) * 0.7;
 
-  legL.upperLegBone.rotation.x = Math.sin(t * 3) * 0.5;
-  legR.upperLegBone.rotation.x = Math.sin(t * 3 + 1) * 0.5;
+    armL.lowerBone.rotation.z = -Math.abs(Math.sin(t)) * 0.7;
+    armR.lowerBone.rotation.z = Math.abs(Math.sin(t)) * 0.7;
+    body.hipsBone.rotation.z = Math.sin(t + 2) * 0.3;
 
-  legL.lowerLegBone.rotation.x = Math.sin(t * 3) * 0.5;
-  legR.lowerLegBone.rotation.x = Math.sin(t * 3 + 1) * 0.5;
+    legL.upperLegBone.rotation.x = Math.sin(t * 3) * 0.5;
+    legR.upperLegBone.rotation.x = Math.sin(t * 3 + 1) * 0.5;
+
+    legL.lowerLegBone.rotation.x = Math.sin(t * 3) * 0.5;
+    legR.lowerLegBone.rotation.x = Math.sin(t * 3 + 1) * 0.5;
+  }
+
+  // VRM標準の表情アニメーション
+  const expressionCycle = Math.sin(t * 0.5);
+  const aaWeight = Math.max(0, expressionCycle); // 0-1の範囲
+
+  if (aaWeight > 0.1) {
+    expressionController.setExpression("aa", aaWeight);
+  } else {
+    expressionController.setExpression("normal", 1.0);
+  }
 
   controls.update();
   renderer.render(scene, camera);
@@ -713,7 +936,6 @@ exporter.register((parser) => {
         expressions: {
           preset: {
             happy: {
-              name: "happy",
               isBinary: false,
               overrideBlink: "none",
               overrideLookAt: "none",
@@ -721,7 +943,6 @@ exporter.register((parser) => {
               morphTargetBinds: [],
             },
             angry: {
-              name: "angry",
               isBinary: false,
               overrideBlink: "none",
               overrideLookAt: "none",
@@ -729,7 +950,6 @@ exporter.register((parser) => {
               morphTargetBinds: [],
             },
             sad: {
-              name: "sad",
               isBinary: false,
               overrideBlink: "none",
               overrideLookAt: "none",
@@ -737,7 +957,6 @@ exporter.register((parser) => {
               morphTargetBinds: [],
             },
             relaxed: {
-              name: "relaxed",
               isBinary: false,
               overrideBlink: "none",
               overrideLookAt: "none",
@@ -745,7 +964,6 @@ exporter.register((parser) => {
               morphTargetBinds: [],
             },
             surprised: {
-              name: "surprised",
               isBinary: false,
               overrideBlink: "none",
               overrideLookAt: "none",
@@ -753,15 +971,19 @@ exporter.register((parser) => {
               morphTargetBinds: [],
             },
             aa: {
-              name: "aa",
               isBinary: false,
               overrideBlink: "none",
               overrideLookAt: "none",
               overrideMouth: "block",
-              morphTargetBinds: [],
+              textureTransformBinds: [
+                {
+                  texture: 0, // 最初のテクスチャ
+                  scale: [0.5, 1],
+                  offset: [100, 100],
+                },
+              ],
             },
             ih: {
-              name: "ih",
               isBinary: false,
               overrideBlink: "none",
               overrideLookAt: "none",
@@ -769,7 +991,6 @@ exporter.register((parser) => {
               morphTargetBinds: [],
             },
             ou: {
-              name: "ou",
               isBinary: false,
               overrideBlink: "none",
               overrideLookAt: "none",
@@ -777,7 +998,6 @@ exporter.register((parser) => {
               morphTargetBinds: [],
             },
             ee: {
-              name: "ee",
               isBinary: false,
               overrideBlink: "none",
               overrideLookAt: "none",
@@ -785,7 +1005,6 @@ exporter.register((parser) => {
               morphTargetBinds: [],
             },
             oh: {
-              name: "oh",
               isBinary: false,
               overrideBlink: "none",
               overrideLookAt: "none",
@@ -793,7 +1012,6 @@ exporter.register((parser) => {
               morphTargetBinds: [],
             },
             blink: {
-              name: "blink",
               isBinary: false,
               overrideBlink: "block",
               overrideLookAt: "none",
@@ -801,7 +1019,6 @@ exporter.register((parser) => {
               morphTargetBinds: [],
             },
             blinkLeft: {
-              name: "blinkLeft",
               isBinary: false,
               overrideBlink: "block",
               overrideLookAt: "none",
@@ -809,7 +1026,6 @@ exporter.register((parser) => {
               morphTargetBinds: [],
             },
             blinkRight: {
-              name: "blinkRight",
               isBinary: false,
               overrideBlink: "block",
               overrideLookAt: "none",
@@ -817,7 +1033,6 @@ exporter.register((parser) => {
               morphTargetBinds: [],
             },
             lookUp: {
-              name: "lookUp",
               isBinary: false,
               overrideBlink: "none",
               overrideLookAt: "block",
@@ -825,7 +1040,6 @@ exporter.register((parser) => {
               morphTargetBinds: [],
             },
             lookDown: {
-              name: "lookDown",
               isBinary: false,
               overrideBlink: "none",
               overrideLookAt: "block",
@@ -833,7 +1047,6 @@ exporter.register((parser) => {
               morphTargetBinds: [],
             },
             lookLeft: {
-              name: "lookLeft",
               isBinary: false,
               overrideBlink: "none",
               overrideLookAt: "block",
@@ -841,7 +1054,6 @@ exporter.register((parser) => {
               morphTargetBinds: [],
             },
             lookRight: {
-              name: "lookRight",
               isBinary: false,
               overrideBlink: "none",
               overrideLookAt: "block",
