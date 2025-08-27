@@ -24,7 +24,7 @@ class Part {
     this.children.push(part);
   }
 
-  buildMesh(skeleton: THREE.Skeleton): THREE.Group {
+  buildMesh(meshes: THREE.SkinnedMesh[]): THREE.Group {
     const group = new THREE.Group();
     group.position.set(this.position.x, this.position.y, this.position.z);
     const mesh = enableBone
@@ -39,8 +39,7 @@ class Part {
               this.geometry.morphAttributes.position.length
             ).fill(0);
           }
-          mesh.bind(skeleton, mesh.matrixWorld);
-          //mesh.bindMode = "detached";
+          meshes.push(mesh);
           return mesh;
         })()
       : new THREE.Mesh(this.geometry, this.material);
@@ -48,7 +47,7 @@ class Part {
     group.add(mesh);
 
     for (const child of this.children) {
-      const childGroup = child.buildMesh(skeleton);
+      const childGroup = child.buildMesh(meshes);
       group.add(childGroup);
     }
 
@@ -706,8 +705,10 @@ const skeleton = new THREE.Skeleton(bones);
 
 console.log(skeleton);
 console.log(body.part);
-const mesh = body.part.buildMesh(skeleton);
+const meshes: THREE.SkinnedMesh[] = [];
+const mesh = body.part.buildMesh(meshes);
 mesh.position.add(new THREE.Vector3(0, 1, 0));
+
 console.log(mesh);
 
 // ExpressionControllerにメッシュを設定
@@ -715,6 +716,9 @@ expressionController.setHeadMesh(mesh);
 
 if (enableBone) {
   mesh.add(body.hipsBone);
+  for (const m of meshes) {
+    m.bind(skeleton);
+  }
   scene.add(new THREE.SkeletonHelper(mesh));
 }
 scene.add(mesh);
