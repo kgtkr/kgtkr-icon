@@ -177,9 +177,7 @@ function createArm(namePrefix: "left" | "right") {
     sphereTop: true,
     sphereBottom: false,
   });
-  geometry.translate(0, -0.5 / 2, 0);
   geometry.rotateZ(direction * (Math.PI / 2));
-  geometry.translate(0.05 * direction, 0, 0);
 
   // skinIndices と skinWeights を設定
   const skinIndices: number[] = [];
@@ -190,7 +188,7 @@ function createArm(namePrefix: "left" | "right") {
     skinIndices.push(upperBoneIdx, lowerBoneIdx, 0, 0);
 
     const x = position.getX(i) * direction;
-    const centerX = 0;
+    const centerX = -0.2;
     const threshold = 0.2;
     const edge0 = centerX - threshold;
     const edge1 = centerX + threshold;
@@ -214,7 +212,7 @@ function createArm(namePrefix: "left" | "right") {
       `${namePrefix}Arm`,
       geometry,
       material,
-      new THREE.Vector3(0.4 * direction, 0.2, 0)
+      new THREE.Vector3(0.6 * direction, 0.2, 0)
     ),
     shoulderBone,
     upperBone,
@@ -258,7 +256,7 @@ function createHand(namePrefix: "left" | "right") {
       `${namePrefix}Hand`,
       geometry,
       material,
-      new THREE.Vector3(0.35 * direction, 0, 0)
+      new THREE.Vector3(0.1 * direction, 0, 0)
     ),
     bone,
   };
@@ -285,7 +283,6 @@ function createLeg(namePrefix: "left" | "right") {
     sphereTop: true,
     sphereBottom: false,
   });
-  geometry.translate(0, -0.3, 0);
 
   const vertexCount = geometry.attributes.position.count;
   const skinIndices: number[] = [];
@@ -296,7 +293,7 @@ function createLeg(namePrefix: "left" | "right") {
 
     const y = position.getY(i);
     const threshold = 0.15;
-    const centerY = 0;
+    const centerY = 0.25;
     const edge0 = centerY - threshold;
     const edge1 = centerY + threshold;
 
@@ -319,7 +316,7 @@ function createLeg(namePrefix: "left" | "right") {
       `${namePrefix}Leg`,
       geometry,
       bodyMaterial,
-      new THREE.Vector3(0.15 * direction, -0.65, 0)
+      new THREE.Vector3(0.15 * direction, -0.9, 0)
     ),
     upperLegBone,
     lowerLegBone,
@@ -335,7 +332,6 @@ function createFoot(namePrefix: "left" | "right") {
   const boneIdx = addBone(bone);
 
   const geometry = new THREE.BoxGeometry(0.2, 0.1, 0.3, 1, 8);
-  geometry.translate(0, 0, 0);
 
   const vertexCount = geometry.attributes.position.count;
   const skinIndices: number[] = [];
@@ -360,7 +356,7 @@ function createFoot(namePrefix: "left" | "right") {
       `${namePrefix}Foot`,
       geometry,
       material,
-      new THREE.Vector3(0, -0.3, 0.05)
+      new THREE.Vector3(0, 0, 0.05)
     ),
     bone,
   };
@@ -397,10 +393,9 @@ function createHead() {
   bone.position.set(0, 0.05, 0);
   const boneIdx = addBone(bone);
 
-  const geometry = new THREE.SphereGeometry(0.35, 16, 16);
-  geometry.rotateY(-Math.PI / 2);
-  geometry.scale(0.83, 1, 1);
-  geometry.translate(0, 0.3, 0);
+  const geometry = new THREE.SphereGeometry(0.35, 32, 32);
+  geometry.scale(1, 1, 0.83);
+  geometry.rotateY((Math.PI / 2) * 3);
 
   // 初期状態で全頂点のvを0.5倍（アトラス上半分のみ参照）
   for (let i = 0; i < geometry.attributes.uv.count; i++) {
@@ -420,7 +415,7 @@ function createHead() {
     const y = pos.getY(i);
     const z = pos.getZ(i);
     // 口の領域（顔の下部、前面）
-    if (y < 0.1 && y > -0.15 && z > 0.2 && Math.abs(x) < 0.15) {
+    if (y < 0.1 && y > -0.3 && z > 0.1 && Math.abs(x) < 0.15) {
       mouthVertexIndices.push(i);
     }
   }
@@ -488,7 +483,7 @@ function createHead() {
   // 顔本体マテリアル
   const faceMaterial = new THREE.MeshBasicMaterial({ map: atlasTexture });
   faceMaterial.name = "headFaceMaterial";
-  faceMaterial.map!.offset.set(0, 0.5);
+  faceMaterial.map!.offset.set(0, 0.0);
   // 口マテリアル（表情で切り替え）
   const mouthMaterial = new THREE.MeshBasicMaterial({ map: atlasTexture });
   mouthMaterial.name = "headMouthMaterial";
@@ -500,7 +495,7 @@ function createHead() {
       "head",
       geometry,
       [faceMaterial, mouthMaterial],
-      new THREE.Vector3(0, 0.4, 0)
+      new THREE.Vector3(0, 0.65, 0)
     ),
     bone,
     faceMaterial,
@@ -570,7 +565,9 @@ function createBody() {
     sphereTop: true,
     sphereBottom: true,
   });
+
   const bodyOffsetY = -0.5;
+  // TODO: ルートなのでtranslateなしで配置するのめんどくさい
   bodyGeometry.translate(0, bodyOffsetY, 0);
 
   const vertexCount = bodyGeometry.attributes.position.count;
@@ -585,7 +582,6 @@ function createBody() {
     const edge2 = bodyOffsetY + bodyHeight * 0.4;
     const edge3 = bodyOffsetY + bodyHeight * 0.8;
     const edge4 = bodyOffsetY + bodyHeight;
-
     if (y < edge1) {
       skinIndices.push(hipsBoneIdx, spineBoneIdx, 0, 0);
       const weight = smoothstep(edge0, edge1, y);
@@ -621,7 +617,7 @@ function createBody() {
       "body",
       bodyGeometry,
       bodyMaterial,
-      new THREE.Vector3(0, 0.05, 0)
+      new THREE.Vector3(0, -0.05, 0)
     ),
     neckBone,
     upperChestBone,
