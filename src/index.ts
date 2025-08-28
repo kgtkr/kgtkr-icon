@@ -18,6 +18,8 @@ const TextureKind = {
   au: null,
   ee: null,
   oh: null,
+  blinkLeft: null,
+  blinkRight: null,
 } as const;
 type TextureKind = keyof typeof TextureKind;
 const TextureKinds = Object.keys(TextureKind) as TextureKind[];
@@ -382,6 +384,17 @@ function createHead() {
   const atlasTexture = new THREE.CanvasTexture(createFaceTextureAtlasCanvas());
   atlasTexture.flipY = false;
 
+  const atlasTexture2 = new THREE.Texture(
+    (() => {
+      const c = createFaceTextureAtlasCanvas();
+      const g = c.getContext("2d")!;
+      g.fillStyle = "magenta";
+      g.fillRect(0, 0, c.width, c.height);
+      return c;
+    })()
+  );
+  atlasTexture2.flipY = false;
+
   // デバッグ用に画像を表示
   {
     const img = document.createElement("img");
@@ -396,7 +409,7 @@ function createHead() {
   bone.position.set(0, 0.05, 0);
   const boneIdx = addBone(bone);
 
-  const geometry = new THREE.SphereGeometry(0.35, 32, 32);
+  const geometry = new THREE.SphereGeometry(0.35, 64, 64);
   geometry.scale(1, 1, 0.83);
   geometry.rotateY((Math.PI / 2) * 3);
 
@@ -409,57 +422,93 @@ function createHead() {
   }
   geometry.attributes.uv.needsUpdate = true;
 
-  // 口部分の頂点インデックスを記録
+  // 頂点を分類
   const uv = geometry.attributes.uv;
   const mouthVertexIndices: number[] = [];
+  const leftEyeVertexIndices: number[] = [];
+  const rightEyeVertexIndices: number[] = [];
   const pos = geometry.attributes.position;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
     const y = pos.getY(i);
     const z = pos.getZ(i);
-    // 口の領域（顔の下部、前面）
+
+    const u = uv.getX(i);
+    const v = uv.getY(i);
+
     if (y < -0.1 && y > -0.3 && z > 0.1 && Math.abs(x) < 0.15) {
       mouthVertexIndices.push(i);
+    } else if (0.4 < u && u < 0.5 && 0.05 < v && v < 0.1) {
+      leftEyeVertexIndices.push(i);
+    } else if (0.5 < u && u < 0.6 && 0.05 < v && v < 0.1) {
+      rightEyeVertexIndices.push(i);
     }
   }
 
-  // 口部分の三角形(face)を特定し、geometry.groupsでmaterialIndex=1にする
+  // 口などのパーツを別のマテリアルで描画するために、ジオメトリをグループ分け
   geometry.clearGroups();
   const index = geometry.index;
   const faceCount = index
     ? index.count / 3
     : geometry.attributes.position.count / 3;
 
-  const group0_indices: number[] = [];
-  const group1_indices: number[] = [];
+  const GROUP_FACE = 0;
+  const GROUP_MOUTH = 1;
+  const GROUP_LEFT_EYE = 2;
+  const GROUP_RIGHT_EYE = 3;
+
+  const faceIndices: number[] = [];
+  const mouthIndices: number[] = [];
+  const leftEyeIndices: number[] = [];
+  const rightEyeIndices: number[] = [];
 
   for (let f = 0; f < faceCount; f++) {
     // 各三角形の頂点インデックス
     const i0 = index ? index.getX(f * 3) : f * 3;
     const i1 = index ? index.getX(f * 3 + 1) : f * 3 + 1;
     const i2 = index ? index.getX(f * 3 + 2) : f * 3 + 2;
-    // 3頂点のうち2つ以上がmouthVertexIndicesに含まれていれば口部分とみなす
+    // 3頂点のうち2つ以上がxxxVertexIndicesに含まれていればそのパーツとみなす
+    // TODO: 計算量
     const mouthCount = [i0, i1, i2].filter((i) =>
       mouthVertexIndices.includes(i)
     ).length;
-    const matIdx = mouthCount >= 2 ? 1 : 0;
-    if (matIdx === 0) {
-      group0_indices.push(i0, i1, i2);
+    const leftEyeCount = [i0, i1, i2].filter((i) =>
+      leftEyeVertexIndices.includes(i)
+    ).length;
+    const rightEyeCount = [i0, i1, i2].filter((i) =>
+      rightEyeVertexIndices.includes(i)
+    ).length;
+
+    if (mouthCount >= 2) {
+      mouthIndices.push(i0, i1, i2);
+    } else if (leftEyeCount >= 2) {
+      leftEyeIndices.push(i0, i1, i2);
+    } else if (rightEyeCount >= 2) {
+      rightEyeIndices.push(i0, i1, i2);
     } else {
-      group1_indices.push(i0, i1, i2);
+      faceIndices.push(i0, i1, i2);
     }
   }
 
-  // 振り分けたインデックスを結合して、新しいインデックスバッファを作成
-  const newIndices = new Uint32Array([...group0_indices, ...group1_indices]);
+  // addGroupを行う
+  const newIndices = new Uint32Array([
+    ...faceIndices,
+    ...mouthIndices,
+    ...leftEyeIndices,
+    ...rightEyeIndices,
+  ]);
   geometry.setIndex(new THREE.BufferAttribute(newIndices, 1));
+  let indexOffset = 0;
+  geometry.addGroup(indexOffset, faceIndices.length, GROUP_FACE);
+  indexOffset += faceIndices.length;
+  geometry.addGroup(indexOffset, mouthIndices.length, GROUP_MOUTH);
+  indexOffset += mouthIndices.length;
+  geometry.addGroup(indexOffset, leftEyeIndices.length, GROUP_LEFT_EYE);
+  indexOffset += leftEyeIndices.length;
+  geometry.addGroup(indexOffset, rightEyeIndices.length, GROUP_RIGHT_EYE);
+  indexOffset += rightEyeIndices.length;
 
-  // 並べ替えたインデックスに基づいて、2つのグループを定義する
-  // グループ0: 顔本体
-  geometry.addGroup(0, group0_indices.length, 0);
-  // グループ1: 口
-  geometry.addGroup(group0_indices.length, group1_indices.length, 1);
-
+  /*
   // モーフターゲット用のジオメトリを作成（口を開いた状態）
   const aaGeometry = geometry.clone();
   const positions = aaGeometry.attributes.position;
@@ -484,6 +533,7 @@ function createHead() {
   // モーフターゲットを設定
   geometry.morphAttributes.position = [aaGeometry.attributes.position];
   geometry.morphTargetsRelative = false;
+  */
 
   const vertexCount = geometry.attributes.position.count;
   const skinIndices: number[] = [];
@@ -501,29 +551,43 @@ function createHead() {
     new THREE.Float32BufferAttribute(skinWeights, 4)
   );
 
-  // 顔本体マテリアル
   const faceMaterial = new THREE.MeshBasicMaterial({
     map: atlasTexture.clone(),
   });
   faceMaterial.name = "headFaceMaterial";
   faceMaterial.map!.offset.set(0, 0);
+
   const mouthMaterial = new THREE.MeshBasicMaterial({
     map: atlasTexture.clone(),
   });
   mouthMaterial.name = "headMouthMaterial";
   mouthMaterial.map!.offset.set(0, 0);
 
+  const leftEyeMaterial = new THREE.MeshBasicMaterial({
+    map: atlasTexture.clone(),
+  });
+  leftEyeMaterial.name = "headLeftEyeMaterial";
+  leftEyeMaterial.map!.offset.set(0, 0);
+
+  const rightEyeMaterial = new THREE.MeshBasicMaterial({
+    map: atlasTexture.clone(),
+  });
+  rightEyeMaterial.name = "headRightEyeMaterial";
+  rightEyeMaterial.map!.offset.set(0, 0);
+
   // 口部分のUV切り替え用情報を返す
   return {
     part: new Part(
       "head",
       geometry,
-      [faceMaterial, mouthMaterial],
+      [faceMaterial, mouthMaterial, leftEyeMaterial, rightEyeMaterial],
       new THREE.Vector3(0, 0.65, 0)
     ),
     bone,
     faceMaterial,
     mouthMaterial,
+    leftEyeMaterial,
+    rightEyeMaterial,
     geometry,
     mouthVertexIndices,
     uv,
@@ -805,8 +869,8 @@ function createFaceTextureCanvas(kind: TextureKind) {
   }
 
   // 目
-  drawEye(g, 113, 146); // 左
-  drawEye(g, 143, 146, true); // 右（反転）
+  drawEye(kind === "blinkLeft", g, 113, 146); // 左
+  drawEye(kind === "blinkRight", g, 143, 146, true); // 右（反転）
 
   // 鼻
   g.strokeStyle = "black";
@@ -818,36 +882,50 @@ function createFaceTextureCanvas(kind: TextureKind) {
   return canvas;
 }
 
-function drawEye(g, x, y, flip = false) {
+function drawEye(
+  blink: boolean,
+  g: CanvasRenderingContext2D,
+  x,
+  y,
+  flip = false
+) {
   g.save();
   g.translate(x, y);
   if (flip) {
     g.scale(-1, 1);
   }
 
-  // 白目
-  g.fillStyle = "white";
-  g.beginPath();
-  g.ellipse(0, 0, 9, 6, 0, 0, Math.PI * 2);
-  g.fill();
+  if (blink) {
+    g.strokeStyle = "black";
+    g.lineWidth = 2;
+    g.beginPath();
+    g.ellipse(0, -5, 12, 9, 0, Math.PI * (30 / 180), Math.PI * (150 / 180));
+    g.stroke();
+  } else {
+    // 白目
+    g.fillStyle = "white";
+    g.beginPath();
+    g.ellipse(0, 0, 9, 6, 0, 0, Math.PI * 2);
+    g.fill();
 
-  // 黒目
-  g.fillStyle = "black";
-  g.beginPath();
-  g.ellipse(1, 0, 4.5, 5, 0, 0, Math.PI * 2);
-  g.fill();
+    // 黒目
+    g.fillStyle = "black";
+    g.beginPath();
+    g.ellipse(1, 0, 4.5, 5, 0, 0, Math.PI * 2);
+    g.fill();
 
-  // 上まぶた
-  g.strokeStyle = "black";
-  g.lineWidth = 2;
-  g.beginPath();
-  g.ellipse(0, 0, 9, 6, 0, Math.PI * (185 / 180), Math.PI * (355 / 180));
-  g.stroke();
+    // 上まぶた
+    g.strokeStyle = "black";
+    g.lineWidth = 2;
+    g.beginPath();
+    g.ellipse(0, 0.2, 9, 6, 0, Math.PI * (185 / 180), Math.PI * (355 / 180));
+    g.stroke();
 
-  // 下まぶた
-  g.beginPath();
-  g.ellipse(0, 0, 9, 6, 0, Math.PI * (5 / 180), Math.PI * (175 / 180));
-  g.stroke();
+    // 下まぶた
+    g.beginPath();
+    g.ellipse(0, -0.2, 9, 6, 0, Math.PI * (5 / 180), Math.PI * (175 / 180));
+    g.stroke();
+  }
 
   g.restore();
 }
@@ -862,13 +940,22 @@ function animate() {
   if (vrm != null) {
     vrm.update(delta);
 
-    const expressionCycle = Math.sin(t * 0.5);
-    const aaWeight = Math.max(0, expressionCycle);
-
-    if (aaWeight > 0.1) {
+    if (Math.abs(Math.sin(t * 0.5)) > 0.2) {
       vrm.expressionManager!.setValue("aa", 0);
     } else {
       vrm.expressionManager!.setValue("aa", 1);
+    }
+
+    if (Math.abs(Math.sin(t * 0.5 + 1)) > 0.2) {
+      vrm.expressionManager!.setValue("blinkLeft", 0);
+    } else {
+      vrm.expressionManager!.setValue("blinkLeft", 1);
+    }
+
+    if (Math.abs(Math.sin(t * 0.5 + 2)) > 0.2) {
+      vrm.expressionManager!.setValue("blinkRight", 0);
+    } else {
+      vrm.expressionManager!.setValue("blinkRight", 1);
     }
   }
 
@@ -971,7 +1058,7 @@ exporter.register((parser) => {
         },
         expressions: {
           preset: {
-            happy: {
+            /*happy: {
               isBinary: false,
               overrideBlink: "none",
               overrideLookAt: "none",
@@ -1005,7 +1092,7 @@ exporter.register((parser) => {
               overrideLookAt: "none",
               overrideMouth: "none",
               morphTargetBinds: [],
-            },
+            },*/
             aa: {
               isBinary: true,
               overrideBlink: "none",
@@ -1094,27 +1181,64 @@ exporter.register((parser) => {
               ],
             },
             blink: {
-              isBinary: false,
-              overrideBlink: "block",
+              isBinary: true,
+              overrideBlink: "none",
               overrideLookAt: "none",
               overrideMouth: "none",
-              morphTargetBinds: [],
+              textureTransformBinds: [
+                {
+                  material: materialToIndex.get(head.leftEyeMaterial.name),
+                  offset: [
+                    0,
+                    TextureKindToIndex["blinkLeft"] * (1 / TextureKinds.length),
+                  ],
+                  scale: [1, 1],
+                },
+                {
+                  material: materialToIndex.get(head.rightEyeMaterial.name),
+                  offset: [
+                    0,
+                    TextureKindToIndex["blinkRight"] *
+                      (1 / TextureKinds.length),
+                  ],
+                  scale: [1, 1],
+                },
+              ],
             },
             blinkLeft: {
-              isBinary: false,
-              overrideBlink: "block",
+              isBinary: true,
+              overrideBlink: "none",
               overrideLookAt: "none",
               overrideMouth: "none",
-              morphTargetBinds: [],
+              textureTransformBinds: [
+                {
+                  material: materialToIndex.get(head.leftEyeMaterial.name),
+                  offset: [
+                    0,
+                    TextureKindToIndex["blinkLeft"] * (1 / TextureKinds.length),
+                  ],
+                  scale: [1, 1],
+                },
+              ],
             },
             blinkRight: {
-              isBinary: false,
-              overrideBlink: "block",
+              isBinary: true,
+              overrideBlink: "none",
               overrideLookAt: "none",
               overrideMouth: "none",
-              morphTargetBinds: [],
+              textureTransformBinds: [
+                {
+                  material: materialToIndex.get(head.rightEyeMaterial.name),
+                  offset: [
+                    0,
+                    TextureKindToIndex["blinkRight"] *
+                      (1 / TextureKinds.length),
+                  ],
+                  scale: [1, 1],
+                },
+              ],
             },
-            lookUp: {
+            /*lookUp: {
               isBinary: false,
               overrideBlink: "none",
               overrideLookAt: "block",
@@ -1141,7 +1265,7 @@ exporter.register((parser) => {
               overrideLookAt: "block",
               overrideMouth: "none",
               morphTargetBinds: [],
-            },
+            },*/
           },
         },
       };
