@@ -368,26 +368,18 @@ function createFoot(namePrefix: "left" | "right") {
 
 function createHead() {
   // 複数の表情テクスチャを作成
-  const normalTexture = new THREE.CanvasTexture(
-    createFaceTextureCanvas("normal")
-  );
-  const aaTexture = new THREE.CanvasTexture(createFaceTextureCanvas("aa"));
+
+  // テクスチャアトラス生成: 上半分=normal, 下半分=aa
+  const atlasTexture = new THREE.CanvasTexture(createFaceTextureAtlasCanvas());
 
   // デバッグ用に画像を表示
   {
-    const img1 = document.createElement("img");
-    img1.src = normalTexture.image.toDataURL();
-    img1.style.width = "128px";
-    img1.style.height = "128px";
-    img1.title = "Normal Face";
-    document.body.appendChild(img1);
-
-    const img2 = document.createElement("img");
-    img2.src = aaTexture.image.toDataURL();
-    img2.style.width = "128px";
-    img2.style.height = "128px";
-    img2.title = "AA Face";
-    document.body.appendChild(img2);
+    const img = document.createElement("img");
+    img.src = atlasTexture.image.toDataURL();
+    img.style.width = "128px";
+    img.style.height = "256px";
+    img.title = "Face Atlas";
+    document.body.appendChild(img);
   }
 
   const bone = new THREE.Bone();
@@ -399,6 +391,29 @@ function createHead() {
   geometry.rotateY(-Math.PI / 2);
   geometry.scale(0.83, 1, 1);
   geometry.translate(0, 0.3, 0);
+
+  // 初期状態で全頂点のvを0.5倍（アトラス上半分のみ参照）
+  for (let i = 0; i < geometry.attributes.uv.count; i++) {
+    const u = geometry.attributes.uv.getX(i);
+    const v = geometry.attributes.uv.getY(i);
+    geometry.attributes.uv.setXY(i, u, v * 0.5);
+  }
+  geometry.attributes.uv.needsUpdate = true;
+
+  // UVアトラス用: 口部分のUVを記録
+  const uv = geometry.attributes.uv;
+  const uvArray = uv.array as Float32Array;
+  const mouthVertexIndices: number[] = [];
+  const pos = geometry.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    // 口の領域（顔の下部、前面）
+    if (y < 0.1 && y > -0.15 && z > 0.2 && Math.abs(x) < 0.15) {
+      mouthVertexIndices.push(i);
+    }
+  }
 
   // モーフターゲット用のジオメトリを作成（口を開いた状態）
   const aaGeometry = geometry.clone();
@@ -441,18 +456,40 @@ function createHead() {
     new THREE.Float32BufferAttribute(skinWeights, 4)
   );
 
-  const material = new THREE.MeshBasicMaterial({ map: normalTexture });
+  const material = new THREE.MeshBasicMaterial({ map: atlasTexture });
   material.name = "headMaterial";
-  material.map!.offset.set(0, 0);
+  material.map!.offset.set(0, 0.5);
+
+  // 口部分のUV切り替え用情報を返す
 
   return {
     part: new Part("head", geometry, material, new THREE.Vector3(0, 0.4, 0)),
     bone,
-    normalTexture,
-    aaTexture,
     material,
     geometry,
+    mouthVertexIndices,
+    uv,
   };
+  // 顔テクスチャアトラス生成: 上=normal, 下=aa
+  function createFaceTextureAtlasCanvas() {
+    const width = 256,
+      height = 512;
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const g = canvas.getContext("2d")!;
+    // 上半分: normal
+    g.drawImage(createFaceTextureCanvas("normal"), 0, 0, width, height / 2);
+    // 下半分: aa
+    g.drawImage(
+      createFaceTextureCanvas("aa"),
+      0,
+      height / 2,
+      width,
+      height / 2
+    );
+    return canvas;
+  }
 }
 
 function createBody() {
@@ -572,15 +609,15 @@ const controls = new OrbitControls(camera, renderer.domElement);
 // VRM標準に従った表情制御システム
 class ExpressionController {
   private headMaterial: THREE.MeshBasicMaterial;
-  private normalTexture: THREE.CanvasTexture;
-  private aaTexture: THREE.CanvasTexture;
   private currentExpression: string = "normal";
   private headMesh: THREE.SkinnedMesh | null = null;
+  private mouthVertexIndices: number[];
+  private uv: THREE.BufferAttribute;
 
   constructor(head: any) {
     this.headMaterial = head.material;
-    this.normalTexture = head.normalTexture;
-    this.aaTexture = head.aaTexture;
+    this.mouthVertexIndices = head.mouthVertexIndices;
+    this.uv = head.uv;
   }
 
   // メッシュを設定（ビルド後に呼び出す）
@@ -606,29 +643,29 @@ class ExpressionController {
 
   setExpression(expression: string, weight: number = 1.0) {
     if (this.currentExpression === expression) return;
-
     this.currentExpression = expression;
 
-    switch (expression) {
-      case "aa":
-        // モーフターゲット制御（VRM標準）
-        if (this.headMesh && this.headMesh.morphTargetInfluences) {
-          this.headMesh.morphTargetInfluences[0] = weight;
-        }
-        // テクスチャ制御（追加効果）
-        this.headMaterial.map = this.aaTexture;
-        break;
-      case "normal":
-      default:
-        // モーフターゲットをリセット
-        if (this.headMesh && this.headMesh.morphTargetInfluences) {
-          this.headMesh.morphTargetInfluences[0] = 0;
-        }
-        // 通常テクスチャに戻す
-        this.headMaterial.map = this.normalTexture;
-        break;
+    // モーフターゲット制御（VRM標準）
+    if (this.headMesh && this.headMesh.morphTargetInfluences) {
+      this.headMesh.morphTargetInfluences[0] = expression === "aa" ? weight : 0;
     }
 
+    // UVアニメーション: 口部分のUVだけ下半分(aa) or 上半分(normal)に切り替え
+    const uv = this.uv;
+    const indices = this.mouthVertexIndices;
+    for (const i of indices) {
+      // 口部分の元のUV
+      const u = uv.getX(i);
+      let v = uv.getY(i);
+      // v: 0〜1 → 0〜0.5(normal), 0.5〜1(aa)
+      if (expression === "aa") {
+        v = v * 0.5 + 0.5; // 下半分
+      } else {
+        v = v * 0.5; // 上半分
+      }
+      uv.setY(i, v);
+    }
+    uv.needsUpdate = true;
     this.headMaterial.needsUpdate = true;
   }
 
@@ -848,11 +885,11 @@ function animate() {
   const expressionCycle = Math.sin(t * 0.5);
   const aaWeight = Math.max(0, expressionCycle); // 0-1の範囲
 
-  if (aaWeight > 0.1) {
+  /*if (aaWeight > 0.1) {
     expressionController.setExpression("aa", aaWeight);
   } else {
     expressionController.setExpression("normal", 1.0);
-  }
+  }*/
 
   controls.update();
   renderer.render(scene, camera);
@@ -968,7 +1005,7 @@ exporter.register((parser) => {
               morphTargetBinds: [],
             },
             aa: {
-              isBinary: false,
+              isBinary: true,
               overrideBlink: "none",
               overrideLookAt: "none",
               overrideMouth: "none",
@@ -981,8 +1018,8 @@ exporter.register((parser) => {
               ],
               textureTransformBinds: [
                 {
-                  material: 1, // 一旦固定値
-                  offset: [0.5, 0.5],
+                  material: 1,
+                  offset: [0, 0],
                   scale: [1, 1],
                 },
               ],
