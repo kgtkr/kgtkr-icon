@@ -15,7 +15,7 @@ class Part {
   constructor(
     public name: string,
     public geometry: THREE.BufferGeometry,
-    public material: THREE.Material,
+    public material: THREE.Material | THREE.Material[],
     public position: THREE.Vector3,
     public children: Part[] = []
   ) {
@@ -372,6 +372,16 @@ function createHead() {
   // テクスチャアトラス生成: 上半分=normal, 下半分=aa
   const atlasTexture = new THREE.CanvasTexture(createFaceTextureAtlasCanvas());
 
+  const atlasTexture2 = new THREE.Texture(
+    (() => {
+      const c = createFaceTextureAtlasCanvas();
+      const g = c.getContext("2d")!;
+      g.fillStyle = "magenta";
+      g.fillRect(0, 0, c.width, c.height);
+      return c;
+    })()
+  );
+
   // デバッグ用に画像を表示
   {
     const img = document.createElement("img");
@@ -400,7 +410,7 @@ function createHead() {
   }
   geometry.attributes.uv.needsUpdate = true;
 
-  // UVアトラス用: 口部分のUVを記録
+  // 口部分の頂点インデックスを記録
   const uv = geometry.attributes.uv;
   const uvArray = uv.array as Float32Array;
   const mouthVertexIndices: number[] = [];
@@ -413,6 +423,25 @@ function createHead() {
     if (y < 0.1 && y > -0.15 && z > 0.2 && Math.abs(x) < 0.15) {
       mouthVertexIndices.push(i);
     }
+  }
+
+  // 口部分の三角形(face)を特定し、geometry.groupsでmaterialIndex=1にする
+  geometry.clearGroups();
+  const index = geometry.index;
+  const faceCount = index
+    ? index.count / 3
+    : geometry.attributes.position.count / 3;
+  for (let f = 0; f < faceCount; f++) {
+    // 各三角形の頂点インデックス
+    const i0 = index ? index.getX(f * 3) : f * 3;
+    const i1 = index ? index.getX(f * 3 + 1) : f * 3 + 1;
+    const i2 = index ? index.getX(f * 3 + 2) : f * 3 + 2;
+    // 3頂点のうち2つ以上がmouthVertexIndicesに含まれていれば口部分とみなす
+    const mouthCount = [i0, i1, i2].filter((i) =>
+      mouthVertexIndices.includes(i)
+    ).length;
+    const matIdx = mouthCount >= 2 ? 1 : 0;
+    geometry.addGroup(f * 3, 3, matIdx);
   }
 
   // モーフターゲット用のジオメトリを作成（口を開いた状態）
@@ -456,16 +485,26 @@ function createHead() {
     new THREE.Float32BufferAttribute(skinWeights, 4)
   );
 
-  const material = new THREE.MeshBasicMaterial({ map: atlasTexture });
-  material.name = "headMaterial";
-  material.map!.offset.set(0, 0.5);
+  // 顔本体マテリアル
+  const faceMaterial = new THREE.MeshBasicMaterial({ map: atlasTexture });
+  faceMaterial.name = "headFaceMaterial";
+  faceMaterial.map!.offset.set(0, 0.5);
+  // 口マテリアル（表情で切り替え）
+  const mouthMaterial = new THREE.MeshBasicMaterial({ map: atlasTexture });
+  mouthMaterial.name = "headMouthMaterial";
+  mouthMaterial.map!.offset.set(0, 0.5); // 初期はnormal口
 
   // 口部分のUV切り替え用情報を返す
-
   return {
-    part: new Part("head", geometry, material, new THREE.Vector3(0, 0.4, 0)),
+    part: new Part(
+      "head",
+      geometry,
+      [faceMaterial, mouthMaterial],
+      new THREE.Vector3(0, 0.4, 0)
+    ),
     bone,
-    material,
+    faceMaterial,
+    mouthMaterial,
     geometry,
     mouthVertexIndices,
     uv,
@@ -608,14 +647,16 @@ const controls = new OrbitControls(camera, renderer.domElement);
 
 // VRM標準に従った表情制御システム
 class ExpressionController {
-  private headMaterial: THREE.MeshBasicMaterial;
+  private faceMaterial: THREE.MeshBasicMaterial;
+  private mouthMaterial: THREE.MeshBasicMaterial;
   private currentExpression: string = "normal";
   private headMesh: THREE.SkinnedMesh | null = null;
   private mouthVertexIndices: number[];
   private uv: THREE.BufferAttribute;
 
   constructor(head: any) {
-    this.headMaterial = head.material;
+    this.faceMaterial = head.faceMaterial;
+    this.mouthMaterial = head.mouthMaterial;
     this.mouthVertexIndices = head.mouthVertexIndices;
     this.uv = head.uv;
   }
@@ -650,23 +691,14 @@ class ExpressionController {
       this.headMesh.morphTargetInfluences[0] = expression === "aa" ? weight : 0;
     }
 
-    // UVアニメーション: 口部分のUVだけ下半分(aa) or 上半分(normal)に切り替え
-    const uv = this.uv;
-    const indices = this.mouthVertexIndices;
-    for (const i of indices) {
-      // 口部分の元のUV
-      const u = uv.getX(i);
-      let v = uv.getY(i);
-      // v: 0〜1 → 0〜0.5(normal), 0.5〜1(aa)
-      if (expression === "aa") {
-        v = v * 0.5 + 0.5; // 下半分
-      } else {
-        v = v * 0.5; // 上半分
-      }
-      uv.setY(i, v);
+    // 口マテリアルのmap.offsetで切り替え（アトラス下半分=aa, 上半分=normal）
+    if (expression === "aa") {
+      this.mouthMaterial.map!.offset.set(0, 0.5);
+    } else {
+      this.mouthMaterial.map!.offset.set(0, 0);
     }
-    uv.needsUpdate = true;
-    this.headMaterial.needsUpdate = true;
+    this.mouthMaterial.map!.needsUpdate = true;
+    this.mouthMaterial.needsUpdate = true;
   }
 
   getCurrentExpression(): string {
@@ -885,11 +917,11 @@ function animate() {
   const expressionCycle = Math.sin(t * 0.5);
   const aaWeight = Math.max(0, expressionCycle); // 0-1の範囲
 
-  /*if (aaWeight > 0.1) {
+  if (aaWeight > 0.1) {
     expressionController.setExpression("aa", aaWeight);
   } else {
     expressionController.setExpression("normal", 1.0);
-  }*/
+  }
 
   controls.update();
   renderer.render(scene, camera);
@@ -900,6 +932,8 @@ const exporter = new GLTFExporter();
 exporter.register((parser) => {
   let nodeCount = 0;
   const meshToNodeIndex = new Map<string, number>();
+  let materialCount = 0;
+  const materialToIndex = new Map<string, number>();
 
   return {
     writeNode: (obj, _node) => {
@@ -908,8 +942,11 @@ exporter.register((parser) => {
       }
       nodeCount++;
     },
+    writeMaterialAsync: async (material) => {
+      materialToIndex.set(material.name, materialCount);
+      materialCount++;
+    },
     afterParse: (_input) => {
-      console.log(meshToNodeIndex);
       parser.extensionsUsed["VRMC_vrm"] = true;
       const gltf = (parser as any).json;
       const nodeNameToIndex = new Map<string, number>();
@@ -1005,7 +1042,7 @@ exporter.register((parser) => {
               morphTargetBinds: [],
             },
             aa: {
-              isBinary: true,
+              isBinary: false,
               overrideBlink: "none",
               overrideLookAt: "none",
               overrideMouth: "none",
@@ -1018,7 +1055,7 @@ exporter.register((parser) => {
               ],
               textureTransformBinds: [
                 {
-                  material: 1,
+                  material: materialToIndex.get(head.mouthMaterial.name),
                   offset: [0, 0],
                   scale: [1, 1],
                 },
