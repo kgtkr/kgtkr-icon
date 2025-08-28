@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
+import { VRM, VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 const enableBone = true;
@@ -367,6 +367,7 @@ function createHead() {
 
   // テクスチャアトラス生成: 上半分=normal, 下半分=aa
   const atlasTexture = new THREE.CanvasTexture(createFaceTextureAtlasCanvas());
+  atlasTexture.flipY = false;
 
   const atlasTexture2 = new THREE.Texture(
     (() => {
@@ -397,17 +398,17 @@ function createHead() {
   geometry.scale(1, 1, 0.83);
   geometry.rotateY((Math.PI / 2) * 3);
 
-  // 初期状態で全頂点のvを0.5倍（アトラス上半分のみ参照）
   for (let i = 0; i < geometry.attributes.uv.count; i++) {
     const u = geometry.attributes.uv.getX(i);
     const v = geometry.attributes.uv.getY(i);
-    geometry.attributes.uv.setXY(i, u, v * 0.5);
+    // 1 - vでflipY=falseに対応
+    // さらに0.5倍することでテクスチャの上半分を使う
+    geometry.attributes.uv.setXY(i, u, (1 - v) * 0.5);
   }
   geometry.attributes.uv.needsUpdate = true;
 
   // 口部分の頂点インデックスを記録
   const uv = geometry.attributes.uv;
-  const uvArray = uv.array as Float32Array;
   const mouthVertexIndices: number[] = [];
   const pos = geometry.attributes.position;
   for (let i = 0; i < pos.count; i++) {
@@ -415,7 +416,7 @@ function createHead() {
     const y = pos.getY(i);
     const z = pos.getZ(i);
     // 口の領域（顔の下部、前面）
-    if (y < 0.1 && y > -0.3 && z > 0.1 && Math.abs(x) < 0.15) {
+    if (y < -0.1 && y > -0.3 && z > 0.1 && Math.abs(x) < 0.15) {
       mouthVertexIndices.push(i);
     }
   }
@@ -426,6 +427,10 @@ function createHead() {
   const faceCount = index
     ? index.count / 3
     : geometry.attributes.position.count / 3;
+
+  const group0_indices: number[] = [];
+  const group1_indices: number[] = [];
+
   for (let f = 0; f < faceCount; f++) {
     // 各三角形の頂点インデックス
     const i0 = index ? index.getX(f * 3) : f * 3;
@@ -436,8 +441,22 @@ function createHead() {
       mouthVertexIndices.includes(i)
     ).length;
     const matIdx = mouthCount >= 2 ? 1 : 0;
-    geometry.addGroup(f * 3, 3, matIdx);
+    if (matIdx === 0) {
+      group0_indices.push(i0, i1, i2);
+    } else {
+      group1_indices.push(i0, i1, i2);
+    }
   }
+
+  // 振り分けたインデックスを結合して、新しいインデックスバッファを作成
+  const newIndices = new Uint32Array([...group0_indices, ...group1_indices]);
+  geometry.setIndex(new THREE.BufferAttribute(newIndices, 1));
+
+  // 並べ替えたインデックスに基づいて、2つのグループを定義する
+  // グループ0: 顔本体
+  geometry.addGroup(0, group0_indices.length, 0);
+  // グループ1: 口
+  geometry.addGroup(group0_indices.length, group1_indices.length, 1);
 
   // モーフターゲット用のジオメトリを作成（口を開いた状態）
   const aaGeometry = geometry.clone();
@@ -451,7 +470,7 @@ function createHead() {
     const z = positionsArray[i * 3 + 2];
 
     // 口の領域（顔の下部、前面）を判定
-    if (y < 0.1 && y > -0.15 && z > 0.2 && Math.abs(x) < 0.15) {
+    if (y < -0.2 && y > -0.3 && z > 0.1 && Math.abs(x) < 0.15) {
       // 口を開く変形：下方向に移動
       positionsArray[i * 3 + 1] = y - 0.05; // Y座標を下げる
       // 口の奥行きも少し調整
@@ -481,13 +500,16 @@ function createHead() {
   );
 
   // 顔本体マテリアル
-  const faceMaterial = new THREE.MeshBasicMaterial({ map: atlasTexture });
+  const faceMaterial = new THREE.MeshBasicMaterial({
+    map: atlasTexture.clone(),
+  });
   faceMaterial.name = "headFaceMaterial";
-  faceMaterial.map!.offset.set(0, 0.0);
-  // 口マテリアル（表情で切り替え）
-  const mouthMaterial = new THREE.MeshBasicMaterial({ map: atlasTexture });
+  faceMaterial.map!.offset.set(0, 0);
+  const mouthMaterial = new THREE.MeshBasicMaterial({
+    map: atlasTexture.clone(),
+  });
   mouthMaterial.name = "headMouthMaterial";
-  mouthMaterial.map!.offset.set(0, 0.5); // 初期はnormal口
+  mouthMaterial.map!.offset.set(0, 0);
 
   // 口部分のUV切り替え用情報を返す
   return {
@@ -890,8 +912,20 @@ let clock = new THREE.Clock();
 function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
-
   const t = 2 * clock.elapsedTime;
+
+  if (vrm != null) {
+    vrm.update(delta);
+
+    const expressionCycle = Math.sin(t * 0.5);
+    const aaWeight = Math.max(0, expressionCycle);
+
+    if (aaWeight > 0.1) {
+      vrm.expressionManager!.setValue("aa", 0);
+    } else {
+      vrm.expressionManager!.setValue("aa", 1);
+    }
+  }
 
   if (boneAnimation) {
     head.bone.rotation.z = Math.sin(t + 1.5) * 0.3;
@@ -1038,21 +1072,21 @@ exporter.register((parser) => {
               morphTargetBinds: [],
             },
             aa: {
-              isBinary: false,
+              isBinary: true,
               overrideBlink: "none",
               overrideLookAt: "none",
               overrideMouth: "none",
-              morphTargetBinds: [
+              /*morphTargetBinds: [
                 {
                   node: meshToNodeIndex.get(head.part.name),
                   index: 0,
                   weight: 1,
                 },
-              ],
+              ],*/
               textureTransformBinds: [
                 {
                   material: materialToIndex.get(head.mouthMaterial.name),
-                  offset: [0, 0],
+                  offset: [0, 0.5],
                   scale: [1, 1],
                 },
               ],
@@ -1142,6 +1176,8 @@ exporter.register((parser) => {
   };
 });
 
+let vrm: VRM | null = null;
+
 exporter.parse(
   model,
   async (blb: any) => {
@@ -1168,13 +1204,16 @@ exporter.parse(
       link.href,
       (gltf) => {
         console.log(gltf.parser.json);
-        const vrm = gltf.userData.vrm;
+        vrm = gltf.userData.vrm as VRM;
         console.log(gltf);
         console.log(vrm);
 
         VRMUtils.removeUnnecessaryVertices(gltf.scene);
         VRMUtils.combineSkeletons(gltf.scene);
         VRMUtils.combineMorphs(vrm);
+
+        gltf.scene.position.x += 1;
+        scene.add(gltf.scene);
       },
       (progress) => {},
       (error) => console.error(error)
