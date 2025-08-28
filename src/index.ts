@@ -13,6 +13,7 @@ const bones: THREE.Bone[] = [];
 
 class Part {
   constructor(
+    public name: string,
     public geometry: THREE.BufferGeometry,
     public material: THREE.Material,
     public position: THREE.Vector3,
@@ -52,7 +53,8 @@ class Part {
           return mesh;
         })()
       : new THREE.Mesh(this.geometry, this.material);
-
+    mesh.name = this.name;
+    group.name = this.name;
     group.add(mesh);
 
     for (const child of this.children) {
@@ -209,6 +211,7 @@ function createArm(namePrefix: "left" | "right") {
 
   return {
     part: new Part(
+      `${namePrefix}Arm`,
       geometry,
       material,
       new THREE.Vector3(0.4 * direction, 0.2, 0)
@@ -252,6 +255,7 @@ function createHand(namePrefix: "left" | "right") {
 
   return {
     part: new Part(
+      `${namePrefix}Hand`,
       geometry,
       material,
       new THREE.Vector3(0.35 * direction, 0, 0)
@@ -312,6 +316,7 @@ function createLeg(namePrefix: "left" | "right") {
 
   return {
     part: new Part(
+      `${namePrefix}Leg`,
       geometry,
       bodyMaterial,
       new THREE.Vector3(0.15 * direction, -0.65, 0)
@@ -351,7 +356,12 @@ function createFoot(namePrefix: "left" | "right") {
   const material = new THREE.MeshBasicMaterial({ color: 0xb4b4b4 });
 
   return {
-    part: new Part(geometry, material, new THREE.Vector3(0, -0.3, 0.05)),
+    part: new Part(
+      `${namePrefix}Foot`,
+      geometry,
+      material,
+      new THREE.Vector3(0, -0.3, 0.05)
+    ),
     bone,
   };
 }
@@ -409,6 +419,7 @@ function createHead() {
       positionsArray[i * 3 + 2] = z - 0.02; // Z座標を少し後ろに
     }
   }
+  aaGeometry.attributes.position.name = "aa";
 
   // モーフターゲットを設定
   geometry.morphAttributes.position = [aaGeometry.attributes.position];
@@ -433,7 +444,7 @@ function createHead() {
   const material = new THREE.MeshBasicMaterial({ map: normalTexture });
 
   return {
-    part: new Part(geometry, material, new THREE.Vector3(0, 0.4, 0)),
+    part: new Part("head", geometry, material, new THREE.Vector3(0, 0.4, 0)),
     bone,
     normalTexture,
     aaTexture,
@@ -491,14 +502,6 @@ function createBody() {
   for (let i = 0; i < vertexCount; i++) {
     const y = position.getY(i);
 
-    /* skinIndices.push(
-      hipsBoneIdx,
-      spineBoneIdx,
-      chestBoneIdx,
-      upperChestBoneIdx
-    );
-    skinWeights.push(0.05, 0.1, 0.8, 0.05);*/
-
     const edge0 = bodyOffsetY;
     const edge1 = bodyOffsetY + bodyHeight * 0.1;
     const edge2 = bodyOffsetY + bodyHeight * 0.4;
@@ -536,7 +539,12 @@ function createBody() {
   const bodyMaterial = new THREE.MeshBasicMaterial({ color: 0x333333 });
 
   return {
-    part: new Part(bodyGeometry, bodyMaterial, new THREE.Vector3(0, 0.05, 0)),
+    part: new Part(
+      "body",
+      bodyGeometry,
+      bodyMaterial,
+      new THREE.Vector3(0, 0.05, 0)
+    ),
     neckBone,
     upperChestBone,
     hipsBone,
@@ -810,13 +818,13 @@ function drawEye(g, x, y, flip = false) {
   g.restore();
 }
 
-let frameCount = 0;
+let clock = new THREE.Clock();
 
 function animate() {
   requestAnimationFrame(animate);
+  const delta = clock.getDelta();
 
-  frameCount++;
-  const t = frameCount * 0.02;
+  const t = 2 * clock.elapsedTime;
 
   if (boneAnimation) {
     head.bone.rotation.z = Math.sin(t + 1.5) * 0.3;
@@ -851,8 +859,18 @@ function animate() {
 const exporter = new GLTFExporter();
 
 exporter.register((parser) => {
+  let nodeCount = 0;
+  const meshToNodeIndex = new Map<string, number>();
+
   return {
+    writeNode: (obj, _node) => {
+      if (obj instanceof THREE.Mesh) {
+        meshToNodeIndex.set(obj.name, nodeCount);
+      }
+      nodeCount++;
+    },
     afterParse: (_input) => {
+      console.log(meshToNodeIndex);
       parser.extensionsUsed["VRMC_vrm"] = true;
       const gltf = (parser as any).json;
       const nodeNameToIndex = new Map<string, number>();
@@ -951,12 +969,12 @@ exporter.register((parser) => {
               isBinary: false,
               overrideBlink: "none",
               overrideLookAt: "none",
-              overrideMouth: "block",
-              textureTransformBinds: [
+              overrideMouth: "none",
+              morphTargetBinds: [
                 {
-                  texture: 0, // 最初のテクスチャ
-                  scale: [0.5, 1],
-                  offset: [100, 100],
+                  node: meshToNodeIndex.get(head.part.name),
+                  index: 0,
+                  weight: 1,
                 },
               ],
             },
