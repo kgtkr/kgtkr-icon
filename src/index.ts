@@ -15,7 +15,7 @@ const TextureKind = {
   normal: null,
   aa: null,
   ih: null,
-  au: null,
+  ou: null,
   ee: null,
   oh: null,
   blinkLeft: null,
@@ -846,7 +846,7 @@ function createFaceTextureCanvas(kind: TextureKind) {
     g.ellipse(128, 185, 8, 3, 0, 0, Math.PI * 2);
     g.fillStyle = "black";
     g.fill();
-  } else if (kind === "au") {
+  } else if (kind === "ou") {
     g.beginPath();
     g.ellipse(128, 185, 12, 8, 0, 0, Math.PI * 2);
     g.fillStyle = "black";
