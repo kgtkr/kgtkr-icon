@@ -442,6 +442,8 @@ function createHead() {
   );
 
   const material = new THREE.MeshBasicMaterial({ map: normalTexture });
+  material.name = "headMaterial";
+  material.map!.offset.set(0, 0);
 
   return {
     part: new Part("head", geometry, material, new THREE.Vector3(0, 0.4, 0)),
@@ -975,6 +977,13 @@ exporter.register((parser) => {
                   node: meshToNodeIndex.get(head.part.name),
                   index: 0,
                   weight: 1,
+                },
+              ],
+              textureTransformBinds: [
+                {
+                  material: 1, // 一旦固定値
+                  offset: [0.5, 0.5],
+                  scale: [1, 1],
                 },
               ],
             },
