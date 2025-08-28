@@ -6,8 +6,7 @@ import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 const enableBone = true;
-const debugBoneWeights = false; // ボーンウェイトの可視化デバッグ
-const debugTargetBoneIndex: number = 10; // デバッグ対象のボーンインデックス（-1で全ボーン表示）
+const debugBoneWeights: number | null = null; // ボーンウェイトの可視化デバッグ対象のインデックス
 const boneAnimation = true;
 const scene = new THREE.Scene();
 const bones: THREE.Bone[] = [];
@@ -18,7 +17,16 @@ class Part {
     public material: THREE.Material,
     public position: THREE.Vector3,
     public children: Part[] = []
-  ) {}
+  ) {
+    if (debugBoneWeights !== null) {
+      this.material = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        vertexColors: true,
+        wireframe: true,
+      });
+      addBoneWeightVisualization(geometry);
+    }
+  }
 
   add(part: Part) {
     this.children.push(part);
@@ -103,8 +111,6 @@ function addBone(bone: THREE.Bone): number {
 }
 
 function addBoneWeightVisualization(geometry: THREE.BufferGeometry) {
-  if (!debugBoneWeights) return;
-
   const vertexCount = geometry.attributes.position.count;
   const colors: number[] = [];
   const skinIndices = geometry.attributes.skinIndex.array as Uint16Array;
@@ -117,7 +123,7 @@ function addBoneWeightVisualization(geometry: THREE.BufferGeometry) {
     // この頂点が対象ボーンの影響を受けているかチェック
     for (let j = 0; j < 4; j++) {
       const boneIndex = skinIndices[i * 4 + j];
-      if (boneIndex === debugTargetBoneIndex) {
+      if (boneIndex === debugBoneWeights) {
         weight = skinWeights[i * 4 + j];
         break;
       }
@@ -199,12 +205,7 @@ function createArm(namePrefix: "left" | "right") {
     new THREE.Float32BufferAttribute(skinWeights, 4)
   );
 
-  // ボーンウェイトの可視化を追加
-  addBoneWeightVisualization(geometry);
-
-  const material = debugBoneWeights
-    ? new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true })
-    : new THREE.MeshBasicMaterial({ color });
+  const material = new THREE.MeshBasicMaterial({ color });
 
   return {
     part: new Part(
@@ -247,12 +248,7 @@ function createHand(namePrefix: "left" | "right") {
     new THREE.Float32BufferAttribute(skinWeights, 4)
   );
 
-  // ボーンウェイトの可視化を追加
-  addBoneWeightVisualization(geometry);
-
-  const material = debugBoneWeights
-    ? new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true })
-    : new THREE.MeshBasicMaterial({ color });
+  const material = new THREE.MeshBasicMaterial({ color });
 
   return {
     part: new Part(
@@ -312,12 +308,7 @@ function createLeg(namePrefix: "left" | "right") {
     new THREE.Float32BufferAttribute(skinWeights, 4)
   );
 
-  // ボーンウェイトの可視化を追加
-  addBoneWeightVisualization(geometry);
-
-  const bodyMaterial = debugBoneWeights
-    ? new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true })
-    : new THREE.MeshBasicMaterial({ color: 0x6496ff });
+  const bodyMaterial = new THREE.MeshBasicMaterial({ color: 0x6496ff });
 
   return {
     part: new Part(
@@ -357,12 +348,7 @@ function createFoot(namePrefix: "left" | "right") {
     new THREE.Float32BufferAttribute(skinWeights, 4)
   );
 
-  // ボーンウェイトの可視化を追加
-  addBoneWeightVisualization(geometry);
-
-  const material = debugBoneWeights
-    ? new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true })
-    : new THREE.MeshBasicMaterial({ color: 0xb4b4b4 });
+  const material = new THREE.MeshBasicMaterial({ color: 0xb4b4b4 });
 
   return {
     part: new Part(geometry, material, new THREE.Vector3(0, -0.3, 0.05)),
@@ -444,14 +430,7 @@ function createHead() {
     new THREE.Float32BufferAttribute(skinWeights, 4)
   );
 
-  // ボーンウェイトの可視化を追加（ただし頭部はテクスチャ優先）
-  if (debugBoneWeights) {
-    addBoneWeightVisualization(geometry);
-  }
-
-  const material = debugBoneWeights
-    ? new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true })
-    : new THREE.MeshBasicMaterial({ map: normalTexture });
+  const material = new THREE.MeshBasicMaterial({ map: normalTexture });
 
   return {
     part: new Part(geometry, material, new THREE.Vector3(0, 0.4, 0)),
@@ -459,7 +438,7 @@ function createHead() {
     normalTexture,
     aaTexture,
     material,
-    geometry, // モーフターゲット付きジオメトリを返す
+    geometry,
   };
 }
 
@@ -554,16 +533,7 @@ function createBody() {
     new THREE.Float32BufferAttribute(skinWeights, 4)
   );
 
-  // ボーンウェイトの可視化を追加
-  addBoneWeightVisualization(bodyGeometry);
-
-  const bodyMaterial = debugBoneWeights
-    ? new THREE.MeshBasicMaterial({
-        color: 0xffffff,
-        vertexColors: true,
-        wireframe: true,
-      })
-    : new THREE.MeshBasicMaterial({ color: 0x333333 });
+  const bodyMaterial = new THREE.MeshBasicMaterial({ color: 0x333333 });
 
   return {
     part: new Part(bodyGeometry, bodyMaterial, new THREE.Vector3(0, 0.05, 0)),
