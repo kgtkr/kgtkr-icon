@@ -8,7 +8,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 const enableBone = true;
 const debugBoneWeights = false; // ボーンウェイトの可視化デバッグ
 const debugTargetBoneIndex: number = 10; // デバッグ対象のボーンインデックス（-1で全ボーン表示）
-const boneAnimation = false;
+const boneAnimation = true;
 const scene = new THREE.Scene();
 const bones: THREE.Bone[] = [];
 
@@ -24,9 +24,10 @@ class Part {
     this.children.push(part);
   }
 
-  buildMesh(meshes: THREE.SkinnedMesh[]): THREE.Group {
+  buildMesh(meshes: THREE.SkinnedMesh[], pos: THREE.Vector3): THREE.Group {
     const group = new THREE.Group();
-    group.position.set(this.position.x, this.position.y, this.position.z);
+    const newPos = pos.clone().add(this.position);
+
     const mesh = enableBone
       ? (() => {
           const mesh = new THREE.SkinnedMesh(this.geometry, this.material);
@@ -43,11 +44,12 @@ class Part {
           return mesh;
         })()
       : new THREE.Mesh(this.geometry, this.material);
+    mesh.position.copy(newPos);
 
     group.add(mesh);
 
     for (const child of this.children) {
-      const childGroup = child.buildMesh(meshes);
+      const childGroup = child.buildMesh(meshes, newPos);
       group.add(childGroup);
     }
 
@@ -465,7 +467,7 @@ function createHead() {
 function createBody() {
   const hipsBone = new THREE.Bone();
   hipsBone.name = "hips";
-  hipsBone.position.set(0, -0.25, 0);
+  hipsBone.position.set(0, -0.3, 0);
   const hipsBoneIdx = addBone(hipsBone);
 
   const spineBone = new THREE.Bone();
@@ -706,7 +708,7 @@ const skeleton = new THREE.Skeleton(bones);
 console.log(skeleton);
 console.log(body.part);
 const meshes: THREE.SkinnedMesh[] = [];
-const mesh = body.part.buildMesh(meshes);
+const mesh = body.part.buildMesh(meshes, new THREE.Vector3(0, 0, 0));
 mesh.position.add(new THREE.Vector3(0, 1, 0));
 
 console.log(mesh);
@@ -715,7 +717,7 @@ console.log(mesh);
 expressionController.setHeadMesh(mesh);
 
 if (enableBone) {
-  mesh.add(body.hipsBone);
+  mesh.children[0].add(body.hipsBone);
   for (const m of meshes) {
     m.bind(skeleton);
   }
