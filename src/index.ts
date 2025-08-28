@@ -24,9 +24,9 @@ class Part {
     this.children.push(part);
   }
 
-  buildMesh(meshes: THREE.SkinnedMesh[], pos: THREE.Vector3): THREE.Group {
+  build(meshes: THREE.SkinnedMesh[]): THREE.Group {
     const group = new THREE.Group();
-    const newPos = pos.clone().add(this.position);
+    group.position.copy(this.position);
 
     const mesh = enableBone
       ? (() => {
@@ -44,12 +44,11 @@ class Part {
           return mesh;
         })()
       : new THREE.Mesh(this.geometry, this.material);
-    mesh.position.copy(newPos);
 
     group.add(mesh);
 
     for (const child of this.children) {
-      const childGroup = child.buildMesh(meshes, newPos);
+      const childGroup = child.build(meshes);
       group.add(childGroup);
     }
 
@@ -708,22 +707,24 @@ const skeleton = new THREE.Skeleton(bones);
 console.log(skeleton);
 console.log(body.part);
 const meshes: THREE.SkinnedMesh[] = [];
-const mesh = body.part.buildMesh(meshes, new THREE.Vector3(0, 0, 0));
-mesh.position.add(new THREE.Vector3(0, 1, 0));
+const model = body.part.build(meshes);
+model.position.add(new THREE.Vector3(0, 1, 0));
 
-console.log(mesh);
+console.log(model);
 
 // ExpressionControllerにメッシュを設定
-expressionController.setHeadMesh(mesh);
+expressionController.setHeadMesh(model);
 
 if (enableBone) {
-  mesh.children[0].add(body.hipsBone);
+  model.add(body.hipsBone);
+  model.updateMatrixWorld(true);
+
   for (const m of meshes) {
     m.bind(skeleton);
   }
-  scene.add(new THREE.SkeletonHelper(mesh));
+  scene.add(new THREE.SkeletonHelper(model));
 }
-scene.add(mesh);
+scene.add(model);
 scene.add(new THREE.GridHelper(10));
 
 function createFaceTextureCanvas(expression: string = "normal") {
@@ -1075,7 +1076,7 @@ exporter.register((parser) => {
 });
 
 exporter.parse(
-  mesh,
+  model,
   async (blb: any) => {
     const blob = new Blob([blb], {
       type: "application/octet-stream",
