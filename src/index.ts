@@ -200,15 +200,20 @@ function createArm(namePrefix: "left" | "right") {
   const vertexCount = geometry.attributes.position.count;
   const position = geometry.attributes.position;
   for (let i = 0; i < vertexCount; i++) {
-    skinIndices.push(upperBoneIdx, lowerBoneIdx, 0, 0);
-
     const x = position.getX(i) * direction;
-    const centerX = -0.2;
-    const threshold = 0.2;
-    const edge0 = centerX - threshold;
-    const edge1 = centerX + threshold;
-    const weight = smoothstep(edge0, edge1, x);
-    skinWeights.push(1 - weight, weight, 0, 0);
+    const edge0 = -0.5;
+    const edge1 = -0.3;
+    const edge2 = 0.0;
+
+    if (x < edge1) {
+      skinIndices.push(shoulderBoneIdx, upperBoneIdx, 0, 0);
+      const weight = smoothstep(edge0, edge1, x);
+      skinWeights.push(1 - weight, weight, 0, 0);
+    } else {
+      skinIndices.push(upperBoneIdx, lowerBoneIdx, 0, 0);
+      const weight = smoothstep(edge1, edge2, x);
+      skinWeights.push(1 - weight, weight, 0, 0);
+    }
   }
 
   geometry.setAttribute(
