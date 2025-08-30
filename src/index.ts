@@ -383,6 +383,9 @@ function createHead() {
   // テクスチャアトラス生成: 上半分=normal, 下半分=aa
   const atlasTexture = new THREE.CanvasTexture(createFaceTextureAtlasCanvas());
   atlasTexture.flipY = false;
+  atlasTexture.magFilter = THREE.LinearFilter;
+  atlasTexture.minFilter = THREE.LinearMipmapLinearFilter;
+  atlasTexture.generateMipmaps = true;
 
   const atlasTexture2 = new THREE.Texture(
     (() => {
@@ -394,6 +397,9 @@ function createHead() {
     })()
   );
   atlasTexture2.flipY = false;
+  atlasTexture2.magFilter = THREE.LinearFilter;
+  atlasTexture2.minFilter = THREE.LinearMipmapLinearFilter;
+  atlasTexture2.generateMipmaps = true;
 
   // デバッグ用に画像を表示
   {
@@ -593,8 +599,9 @@ function createHead() {
     uv,
   };
   function createFaceTextureAtlasCanvas() {
-    const width = 256;
-    const h = 256;
+    const UP_SCALE = 4;
+    const width = 256 * UP_SCALE;
+    const h = 256 * UP_SCALE;
     const height = h * TextureKinds.length;
     const canvas = document.createElement("canvas");
     canvas.width = width;
@@ -917,12 +924,12 @@ function drawEye(
     g.strokeStyle = "black";
     g.lineWidth = 2;
     g.beginPath();
-    g.ellipse(0, 0.2, 9, 6, 0, Math.PI * (185 / 180), Math.PI * (355 / 180));
+    g.ellipse(0, 0.2, 9, 6, 0, Math.PI * (180 / 180), Math.PI * (360 / 180));
     g.stroke();
 
     // 下まぶた
     g.beginPath();
-    g.ellipse(0, -0.2, 9, 6, 0, Math.PI * (5 / 180), Math.PI * (175 / 180));
+    g.ellipse(0, -0.2, 9, 6, 0, Math.PI * (0 / 180), Math.PI * (180 / 180));
     g.stroke();
   }
 
