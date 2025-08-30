@@ -439,9 +439,9 @@ function createHead() {
     if (y < -0.1 && y > -0.3 && z > 0.1 && Math.abs(x) < 0.15) {
       mouthVertexIndices.push(i);
     } else if (0.4 < u && u < 0.5 && 0.05 < v && v < 0.1) {
-      leftEyeVertexIndices.push(i);
-    } else if (0.5 < u && u < 0.6 && 0.05 < v && v < 0.1) {
       rightEyeVertexIndices.push(i);
+    } else if (0.5 < u && u < 0.6 && 0.05 < v && v < 0.1) {
+      leftEyeVertexIndices.push(i);
     }
   }
 
@@ -868,9 +868,8 @@ function createFaceTextureCanvas(kind: TextureKind) {
     g.stroke();
   }
 
-  // 目
-  drawEye(kind === "blinkLeft", g, 113, 146); // 左
-  drawEye(kind === "blinkRight", g, 143, 146, true); // 右（反転）
+  drawEye(kind === "blinkRight", g, 113, 146);
+  drawEye(kind === "blinkLeft", g, 143, 146, true);
 
   // 鼻
   g.strokeStyle = "black";
